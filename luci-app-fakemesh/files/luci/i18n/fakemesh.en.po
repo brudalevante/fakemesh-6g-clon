@@ -1,0 +1,53 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Fake Mesh Setup"
+msgstr "Fake Mesh Setup"
+
+msgid "Fake Mesh"
+msgstr "Fake Mesh"
+
+msgid "Role"
+msgstr "Role"
+
+msgid "Leave empty if encryption is not required."
+msgstr "Leave empty if encryption is not required."
+
+msgid "Set the gateway router as controller, others as agent."
+msgstr "Set the gateway router as controller, others as agent."
+
+msgid "Wired AP (ethernet as backhaul)"
+msgstr "Wired AP (ethernet as backhaul)"
+
+msgid "Agent (wifi as backhaul)"
+msgstr "Agent (wifi as backhaul)"
+
+msgid "Controller (AC)"
+msgstr "Controller (AC)"
+
+msgid "The simple ip address to access the controller."
+msgstr "The simple ip address to access the controller."
+
+msgid "Access IP address"
+msgstr "Access IP address"
+
+msgid "Sync Config"
+msgstr "Sync Config"
+
+msgid "Sync config from the Controller."
+msgstr "Sync config from the Controller."
+
+msgid "Wireless Management"
+msgstr "Wireless Management"
+
+msgid "Not available on AP"
+msgstr "Not available on AP"
+
+msgid "Band Steer Helper"
+msgstr "Band Steer Helper"
+
+msgid "Fronthaul Disabled"
+msgstr "Fronthaul Disabled"
+
+msgid "Disable fronthaul Wi-Fi signal on this node."
+msgstr "Disable fronthaul Wi-Fi signal on this node."
