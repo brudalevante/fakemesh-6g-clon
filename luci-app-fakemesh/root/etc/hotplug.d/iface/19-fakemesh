@@ -20,7 +20,7 @@ done
 
 # Cambiar hostname si mesh habilitado
 if [ "$enabled" = "1" ]; then
-    old_hostname="$(uci get system.@system[0].hostname || echo X-WRT)"
+    old_hostname="$(uci get system.@system[0].hostname || echo brudalevante)"
     new_hostname="$(uci get network.$INTERFACE.hostname || echo $old_hostname)"
     [ "$old_hostname" != "$new_hostname" ] && {
         uci set system.@system[0].hostname="$new_hostname"
