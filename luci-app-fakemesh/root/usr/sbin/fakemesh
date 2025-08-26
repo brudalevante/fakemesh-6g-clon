@@ -187,7 +187,7 @@ agent_lost_ac()
 			uci set wireless.wifinet$K.network='lan'
 			uci set wireless.wifinet$K.mode='ap'
 			uci set wireless.wifinet$K.ssid="${ssid}"
-			uci set wireless.wifinet$K.encryption="psk2"
+			uci set wireless.wifinet$K.encryption="sae"
 			uci set wireless.wifinet$K.key="${ssid_passwd}"
 			uci set wireless.wifinet$K.wpa_group_rekey='601'
 			uci set wireless.wifinet$K.max_inactivity='301'
@@ -532,63 +532,48 @@ agent_fix_channel()
 	while :; do
 		sleep 10
 		sta="$(ubus -S list wpa_supplicant.meshx1)"
-		if test -n "$sta"; then
-			chan=$(iwinfo meshx1 scan | grep -A1 -B1 "ESSID: \"${Xid}\"" | head -n3 | tail -n1 | grep -io "Channel:.*"| awk '{print $2}')
-			if [ "$chan" != "$channel" ]; then
-    logger -t fakemesh "agent_fix_channel($pid): Setting up channel ($chan) for ${radio}"
-    uci set wireless.${radio}.channel="$chan"
-    if [ "$band" = "5g" ]; then
-        # Ajuste para banda 5G
-        test "$chan" -ge "36" -a "$chan" -le "44" || {
+		if test -n "$chan"; then
+    if [ "$chan" != "$channel" ]; then
+        logger -t fakemesh "agent_fix_channel($pid): Setting up channel ($chan) for ${radio}"
+        uci set wireless.${radio}.channel="$chan"
+        # --- Ajusta HTMODE según banda aquí si quieres ---
+        if [ "$band" = "5g" ]; then
             htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
-            if [ "$htmode" = "VHT160" ]; then
+            if [ "$htmode" = "VHT160" ] && ! ([ "$chan" -ge 36 ] && [ "$chan" -le 44 ]); then
                 uci set wireless.${radio}.htmode="VHT80"
-            elif [ "$htmode" = "HE160" ]; then
+            elif [ "$htmode" = "HE160" ] && ! ([ "$chan" -ge 36 ] && [ "$chan" -le 44 ]); then
                 uci set wireless.${radio}.htmode="HE80"
             fi
-        }
-    elif [ "$band" = "6g" ]; then
-        # Ajuste para banda 6G
-        # EHT320: canal 1, 5, 9...37 (añade los que quieras)
-        # EHT160: canal 33, 49, etc.
-        # EHT80: 65, 73, etc.
-        htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
-        case "$chan" in
-            1|5|9|13|17|21|25|29|33|37)
-                # Canales típicos EHT320, nada que hacer
-                ;;
-            49|65|81|97|113|129|145|161|177|193|209|225)
-                # Canales típicos EHT160
-                if [ "$htmode" = "EHT320" ]; then
-                    uci set wireless.${radio}.htmode="EHT160"
-                fi
-                ;;
-            65|73|81|89|97|105|113|121|129|137|145|153|161|169|177|185|193|201|209|217|225|233)
-                # Canales típicos EHT80
-                if [ "$htmode" = "EHT320" ] || [ "$htmode" = "EHT160" ]; then
-                    uci set wireless.${radio}.htmode="EHT80"
-                fi
-                ;;
-            *)
-                # Si el canal no es típico, baja a EHT20
-                uci set wireless.${radio}.htmode="EHT20"
-                ;;
-        esac
+        elif [ "$band" = "6g" ]; then
+            htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+            case "$chan" in
+                1|5|9|13|17|21|25|29|33|37)
+                    # EHT320, nada que hacer
+                    ;;
+                49|65|81|97|113|129|145|161|177|193|209|225)
+                    if [ "$htmode" = "EHT320" ]; then
+                        uci set wireless.${radio}.htmode="EHT160"
+                    fi
+                    ;;
+                65|73|81|89|97|105|113|121|129|137|145|153|161|169|177|185|193|201|209|217|225|233)
+                    if [ "$htmode" = "EHT320" ] || [ "$htmode" = "EHT160" ]; then
+                        uci set wireless.${radio}.htmode="EHT80"
+                    fi
+                    ;;
+                *)
+                    uci set wireless.${radio}.htmode="EHT20"
+                    ;;
+            esac
+        fi
+        uci commit wireless
+        /etc/init.d/network reload &
     fi
-    uci commit wireless
-    /etc/init.d/network reload &
+    logger -t fakemesh "agent_fix_channel($pid): Channel ($chan) for ${radio} ready!"
+    break
 fi
-
-					uci commit wireless
-					/etc/init.d/network reload &
-				fi
-				logger -t fakemesh "agent_fix_channel($pid): Channel ($chan) for ${radio} ready!"
-				break
-			fi
-		fi
-		sleep 20
-		test -f /tmp/fakemesh_lck1/$pid || return 0
-	done
+sleep 20
+test -f /tmp/fakemesh_lck1/$pid || return 0
+done
 
 	rm -f /tmp/fakemesh_lck1/$pid; rmdir /tmp/fakemesh_lck1
 
@@ -684,7 +669,7 @@ if [ "$role" = "controller" ]; then
 			uci set wireless.${mesh_iface}.wpa_group_rekey='601'
 			uci set wireless.${mesh_iface}.max_inactivity='301'
 			if test -n "${Xkey}"; then
-				uci set wireless.${mesh_iface}.encryption='psk2'
+				uci set wireless.${mesh_iface}.encryption='sae'
 				uci set wireless.${mesh_iface}.key="${Xkey}"
 			else
 				uci set wireless.${mesh_iface}.encryption='none'
@@ -816,7 +801,7 @@ else
 			uci set wireless.${mesh_iface}.wpa_group_rekey='601'
 			uci set wireless.${mesh_iface}.max_inactivity='301'
 			if test -n "${Xkey}"; then
-				uci set wireless.${mesh_iface}.encryption='psk2'
+				uci set wireless.${mesh_iface}.encryption='sae'
 				uci set wireless.${mesh_iface}.key="${Xkey}"
 			else
 				uci set wireless.${mesh_iface}.encryption='none'
@@ -837,7 +822,7 @@ else
 				uci set wireless.${mesh_iface}_sta.wds='1'
 				uci set wireless.${mesh_iface}_sta.ssid="${Xid}"
 				if test -n "${Xkey}"; then
-					uci set wireless.${mesh_iface}_sta.encryption='psk2'
+					uci set wireless.${mesh_iface}_sta.encryption='sae'
 					uci set wireless.${mesh_iface}_sta.key="${Xkey}"
 				else
 					uci set wireless.${mesh_iface}_sta.encryption='none'
@@ -859,6 +844,28 @@ else
 			fi
 		fi
 	done
+
+... # código del bucle for que termina en la línea 799
+		fi
+	done   # <--- AQUÍ termina el bucle, normalmente será la línea 850 y pico
+
+# === BLOQUE PARA CREAR LAS SECCIONES WIFIM EN FAKEMESHAC ===
+for idx in 0 1 2; do
+    band=$(echo $mesh_bands | awk "{print \$$(($idx+1))}")
+    mesh_iface="meshx$idx"
+    ssid="${Xid}-${band}"
+    encryption="sae"
+    [ "$band" = "6g" ] && encryption="sae"
+
+    uci add fakemeshac wifim
+    uci set fakemeshac.@wifim[-1].ssid="$ssid"
+    uci set fakemeshac.@wifim[-1].encryption="$encryption"
+    uci set fakemeshac.@wifim[-1].key="$Xkey"
+    uci set fakemeshac.@wifim[-1].band="$band"
+    uci set fakemeshac.@wifim[-1].cfg_version="1"
+done
+uci commit fakemeshac
+# === FIN BLOQUE WIFIM ===
 
 	for idx in 0 1 2; do
 		mesh_iface="meshx$idx"
