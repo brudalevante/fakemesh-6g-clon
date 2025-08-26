@@ -1,0 +1,99 @@
+#!/bin/sh
+
+[ "$ACTION" = ifup -o "$ACTION" = ifupdate ] || exit 0
+
+enabled="$(uci get fakemesh.default.enabled)"
+role="$(uci get fakemesh.default.role)"
+
+# Definir todas las interfaces mesh disponibles
+mesh_ifaces="meshx0 meshx1 meshx2"
+
+# Por defecto, interface es lan (cuando no está en modo mesh)
+interface=lan
+
+# Si mesh está habilitado y no es controller, escogemos la mesh correspondiente
+for m in $mesh_ifaces; do
+    [ "$enabled" = "1" ] && [ "$role" != "controller" ] && [ "$INTERFACE" = "$m" ] && interface="$m"
+done
+
+[ "$INTERFACE" = "$interface" ] || exit 0
+
+# Cambiar hostname si mesh habilitado
+if [ "$enabled" = "1" ]; then
+    old_hostname="$(uci get system.@system[0].hostname || echo X-WRT)"
+    new_hostname="$(uci get network.$INTERFACE.hostname || echo $old_hostname)"
+    [ "$old_hostname" != "$new_hostname" ] && {
+        uci set system.@system[0].hostname="$new_hostname"
+        uci commit system
+        /etc/init.d/system reload
+        /etc/init.d/umdns running && /etc/init.d/umdns restart
+    }
+fi
+
+band_steer_helper=$(uci get fakemesh.default.band_steer_helper || echo none)
+band_steer_helper="$band_steer_helper" /usr/sbin/fakemesh band_steer_helper_switch
+
+/etc/init.d/umdns enabled && {
+
+    # Gestión para cada interfaz mesh
+    for m in $mesh_ifaces; do
+        if [ "$INTERFACE" = "$m" ] && uci get umdns.@umdns[0]; then
+            old_net=$(uci get umdns.@umdns[0].network)
+            new_net=$(for net in $old_net $m; do echo $net; done | sort | uniq)
+            new_net="$m"  # workaround por bug umdns
+
+            [ "$old_net" != "$new_net" ] && {
+                uci delete umdns.@umdns[0].network >/dev/null 2>&1
+                for net in $new_net; do
+                    uci add_list umdns.@umdns[0].network="$net"
+                done
+                uci commit umdns
+                /etc/init.d/umdns reload
+            }
+            (sleep 60 && /etc/init.d/umdns reload) &
+        fi
+    done
+
+    # Si es LAN, quitamos meshx* de old_net
+    if [ "$INTERFACE" = "lan" ] && uci get umdns.@umdns[0]; then
+        old_net=$(uci get umdns.@umdns[0].network)
+        # Eliminar cualquier meshx* de la red LAN
+        new_net=$(for net in $old_net lan; do echo $net; done | grep -v '^meshx[0-9]*$' | sort | uniq)
+        [ "$old_net" != "$new_net" ] && {
+            uci delete umdns.@umdns[0].network >/dev/null 2>&1
+            for net in $new_net; do
+                uci add_list umdns.@umdns[0].network="$net"
+            done
+            uci commit umdns
+            /etc/init.d/umdns reload
+        }
+        (sleep 60 && /etc/init.d/umdns reload) &
+    fi
+} ##/etc/init.d/umdns enabled
+
+uci get usteer.@usteer[0] && {
+    old_net=$(uci get usteer.@usteer[0].network)
+    new_net="$INTERFACE"
+    [ "$old_net" != "$new_net" ] && {
+        uci set usteer.@usteer[0].network="$new_net"
+        uci commit usteer
+        [ "$band_steer_helper" = "usteer" ] && /etc/init.d/usteer restart
+    }
+}
+
+status="$(ubus -S call network.interface.$INTERFACE status)"
+[ -n "$status" ] && {
+    address=$(echo "$status" | jsonfilter -e '@["ipv4-address"][0].address')
+    mask=$(echo "$status" | jsonfilter -e '@["ipv4-address"][0].mask')
+    test -n "$address" && test -n "$mask" && {
+        broadcast="$(ipcalc.sh "$address/$mask" | grep BROADCAST | cut -d= -f2)"
+        uci get dawn.@network[0] && {
+            old_broadcast="$(uci get dawn.@network[0].broadcast_ip)"
+            [ "$broadcast" = "$old_broadcast" ] || {
+                uci set dawn.@network[0].broadcast_ip="$broadcast"
+                uci commit dawn
+                [ "$band_steer_helper" = "dawn" ] && /etc/init.d/dawn reload
+            }
+        }
+    }
+}
