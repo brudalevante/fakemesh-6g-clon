@@ -101,6 +101,13 @@ return view.extend({
 		o.value('psk-mixed', _('WPA-PSK/WPA2-PSK Mixed Mode'));
 		o.value('sae', _('WPA3-SAE'));
 		o.value('sae-mixed', _('WPA2-PSK/WPA3-SAE Mixed Mode'));
+		o.value('wpa', _('WPA-EAP (medium security)'));
+		o.value('wpa2', _('WPA2-EAP (strong security)'));
+		o.value('wpa3', _('WPA3-EAP (strong security)'));
+		o.value('owe', _('OWE (open network)'));
+		o.value('eap192', _('WPA2-EAP 192-bit Mode (strong security)'));
+		o.value('eap-mixed', _('WPA2-EAP/WPA3-EAP Mixed Mode (strong security)'));
+		o.value('psk-eap-mixed', _('WPA-PSK/WPA-EAP Mixed Mode (medium security)'));
 		if (current_role != 'controller') o.readonly = true;
 
 		o = s.option(form.Value, 'key', _('Key'));
@@ -109,20 +116,21 @@ return view.extend({
 		o.depends('encryption', 'psk-mixed');
 		o.depends('encryption', 'sae');
 		o.depends('encryption', 'sae-mixed');
+		o.depends('encryption', 'psk-eap-mixed'); // Solo si tu firmware soporta este modo mixto con clave
 		o.rmempty = false;
 		o.password = true;
 		o.datatype = 'wpakey';
 		if (current_role != 'controller') o.readonly = true;
 
 		// Añadimos la banda 6g y combinaciones a la gestión inalámbrica
-o = s.option(form.ListValue, 'band', _('Band'));
-o.value('2g5g6g', _('2G+5G+6G'));
-o.value('5g6g', _('5G+6G'));
-o.value('2g5g', _('2G+5G'));
-o.value('6g', _('6G'));
-o.value('5g', _('5G'));
-o.value('2g', _('2G'));
-o.default = '2g5g6g';
+		o = s.option(form.ListValue, 'band', _('Band'));
+		o.value('2g5g6g', _('2G+5G+6G'));
+		o.value('5g6g', _('5G+6G'));
+		o.value('2g5g', _('2G+5G'));
+		o.value('6g', _('6G'));
+		o.value('5g', _('5G'));
+		o.value('2g', _('2G'));
+		o.default = '2g5g6g';
 		if (current_role != 'controller') o.readonly = true;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
