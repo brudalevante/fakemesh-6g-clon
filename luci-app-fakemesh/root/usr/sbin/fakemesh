@@ -135,19 +135,19 @@ test $enabled -eq 0 && {
 	exit 0
 }
 
-config_get role default 'role' 'agent'
-config_get band default 'band' '5g'
-config_get Xid default 'id'
-config_get Xkey default 'key'
-config_get access_ip default 'access_ip' '10.10.10.1'
-config_get sync_ac default 'sync_ac' '1'
-config_get fronthaul_disabled default 'fronthaul_disabled' '0'
+	config_get role default 'role' 'agent'
+	config_get band default 'band' '5g'
+	config_get Xid default 'id'
+	config_get Xkey default 'key'
+	config_get access_ip default 'access_ip' '10.10.10.1'
+	config_get sync_ac default 'sync_ac' '1'
+	config_get fronthaul_disabled default 'fronthaul_disabled' '0'
 
-bands="$band"
-[ "$bands" = "2g5g" ] && bands="2g 5g"
-[ "$bands" = "2g6g" ] && bands="2g 6g"
-[ "$bands" = "5g6g" ] && bands="5g 6g"
-[ "$bands" = "2g5g6g" ] && bands="2g 5g 6g"'
+	bands="$band"
+	[ "$bands" = "2g5g" ] && bands="2g 5g"
+	[ "$bands" = "2g6g" ] && bands="2g 6g"
+	[ "$bands" = "5g6g" ] && bands="5g 6g"
+	[ "$bands" = "2g5g6g" ] && bands="2g 5g 6g"'
 
 lost_ac=${lost_ac:-0}
 LOST_AC_CNT=3
