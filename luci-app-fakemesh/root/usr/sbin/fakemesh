@@ -872,22 +872,22 @@ done
 	done   # <--- AQUÍ termina el bucle, normalmente será la línea 850 y pico
 
 # === BLOQUE PARA CREAR LAS SECCIONES WIFIM EN FAKEMESHAC ===
-for idx in 0 1 2; do
-    band=$(echo $mesh_bands | awk "{print \$$(($idx+1))}")
-    echo "$bands" | grep -qw "$band" || continue
-    mesh_iface="meshx$idx"
-    ssid="${Xid}-${band}"
-    encryption="sae"
+		for idx in 0 1 2; do
+   		band=$(echo $mesh_bands | awk "{print \$$(($idx+1))}")
+    	echo "$bands" | grep -qw "$band" || continue
+    	mesh_iface="meshx$idx"
+    	ssid="${Xid}-${band}"
+   	 	encryption="sae"
     [ "$band" = "6g" ] && encryption="sae"
 
-    uci add fakemeshac wifim
-    uci set fakemeshac.@wifim[-1].ssid="$ssid"
-    uci set fakemeshac.@wifim[-1].encryption="$encryption"
-    uci set fakemeshac.@wifim[-1].key="$Xkey"
-    uci set fakemeshac.@wifim[-1].band="$band"
-    uci set fakemeshac.@wifim[-1].cfg_version="1"
+    	uci add fakemeshac wifim
+    	uci set fakemeshac.@wifim[-1].ssid="$ssid"
+    	uci set fakemeshac.@wifim[-1].encryption="$encryption"
+    	uci set fakemeshac.@wifim[-1].key="$Xkey"
+   		uci set fakemeshac.@wifim[-1].band="$band"
+    	uci set fakemeshac.@wifim[-1].cfg_version="1"
 done
-uci commit fakemeshac
+		uci commit fakemeshac
 # === FIN BLOQUE WIFIM ===
 
 	for idx in 0 1 2; do
