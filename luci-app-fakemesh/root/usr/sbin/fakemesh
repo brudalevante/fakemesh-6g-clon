@@ -664,38 +664,40 @@ if [ "$role" = "controller" ]; then
     # --- FIN LIMPIEZA ---
 
     # CREA SOLO LAS meshx* PARA LAS BANDAS SELECCIONADAS
-for idx in 0 1 2; do
-    band=$(echo $mesh_bands | awk "{print \$$(($idx+1))}")
-    echo "$bands" | grep -qw "$band" || continue
+    for idx in 0 1 2; do
+        band=$(echo $mesh_bands | awk "{print \$$(($idx+1))}")
+        echo "$bands" | grep -qw "$band" || continue
 
-    wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
-    if test -n "$wbandstr"; then
-        radio=$(echo $wbandstr | cut -d\. -f2) # radio0/radio1/radio2
-        mesh_iface="meshx$idx"
-        ssid="${Xid}-${band}"    # <- aquí
-        uci set wireless.${mesh_iface}=wifi-iface
-        uci set wireless.${mesh_iface}.device="${radio}"
-        uci set wireless.${mesh_iface}.network='lan'
-        uci set wireless.${mesh_iface}.ifname="${mesh_iface}"
-        uci set wireless.${mesh_iface}.mode='ap'
-        uci set wireless.${mesh_iface}.wds='1'
-        uci set wireless.${mesh_iface}.ssid="${ssid}"   # <- aquí
-        uci set wireless.${mesh_iface}.hidden='1'
-        uci set wireless.${mesh_iface}.wpa_group_rekey='601'
-        uci set wireless.${mesh_iface}.max_inactivity='301'
-        if test -n "${Xkey}"; then
-            uci set wireless.${mesh_iface}.encryption='sae'
-            uci set wireless.${mesh_iface}.key="${Xkey}"
-        else
-            uci set wireless.${mesh_iface}.encryption='none'
+        wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
+        if test -n "$wbandstr"; then
+            radio=$(echo $wbandstr | cut -d\. -f2) # radio0/radio1/radio2
+            mesh_iface="meshx$idx"
+            ssid="${Xid}-${band}"
+            echo "DEBUG: Xid='$Xid' band='$band' mesh_iface='$mesh_iface' ssid='$ssid'" >> /tmp/fakemesh.debug
+            uci set wireless.${mesh_iface}=wifi-iface
+            uci set wireless.${mesh_iface}.device="${radio}"
+            uci set wireless.${mesh_iface}.network='lan'
+            uci set wireless.${mesh_iface}.ifname="${mesh_iface}"
+            uci set wireless.${mesh_iface}.mode='ap'
+            uci set wireless.${mesh_iface}.wds='1'
+            uci set wireless.${mesh_iface}.ssid="${ssid}"
+            uci set wireless.${mesh_iface}.hidden='1'
+            uci set wireless.${mesh_iface}.wpa_group_rekey='601'
+            uci set wireless.${mesh_iface}.max_inactivity='301'
+            if test -n "${Xkey}"; then
+                uci set wireless.${mesh_iface}.encryption='sae'
+                uci set wireless.${mesh_iface}.key="${Xkey}"
+            else
+                uci set wireless.${mesh_iface}.encryption='none'
+            fi
+            if [ "$fronthaul_disabled" = "1" ]; then
+                uci set wireless.${mesh_iface}.disabled='1'
+            else
+                uci delete wireless.${mesh_iface}.disabled 2>/dev/null
+            fi
         fi
-        if [ "$fronthaul_disabled" = "1" ]; then
-            uci set wireless.${mesh_iface}.disabled='1'
-        else
-            uci delete wireless.${mesh_iface}.disabled 2>/dev/null
-        fi
-    fi
-done
+    done
+
 fi
 # Borra configuraciones obsoletas
 for iface in meshx0 meshx1 meshx2; do
