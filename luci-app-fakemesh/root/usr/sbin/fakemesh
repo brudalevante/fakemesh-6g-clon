@@ -874,6 +874,7 @@ done
 # === BLOQUE PARA CREAR LAS SECCIONES WIFIM EN FAKEMESHAC ===
 for idx in 0 1 2; do
     band=$(echo $mesh_bands | awk "{print \$$(($idx+1))}")
+    echo "$bands" | grep -qw "$band" || continue
     mesh_iface="meshx$idx"
     ssid="${Xid}-${band}"
     encryption="sae"
