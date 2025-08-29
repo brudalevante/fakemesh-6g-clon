@@ -53,18 +53,20 @@ config_load fakemesh
 
 config_get_bool enabled default 'enabled' '0'
 
+# --- CORRECCI N: Al desactivar mesh, solo borra meshx0/meshx1 y nunca borra los wifinet normales ---
 test $enabled -eq 0 && {
 	rm -f /www/fakemesh.*
 	rm -rf /tmp/fakemesh_lck*
 	rm -f /tmp/fakemesh.firewall.include
 
 	test -e /etc/init.d/umdns && {
-	rm /tmp/fakemesh.umdns.json 2>/dev/null && \
-	/etc/init.d/umdns restart
+		rm /tmp/fakemesh.umdns.json 2>/dev/null && \
+		/etc/init.d/umdns restart
 	}
 
 	uci delete wireless.meshx0 &>/dev/null
 	uci delete wireless.meshx1 &>/dev/null
+	uci delete wireless.meshx2 &>/dev/null
 
 	I=0
 	while uci get wireless.@wifi-iface[$I] &>/dev/null; do
@@ -345,15 +347,18 @@ agent_sync_config()
 		newcfgmd5=$(uci show fakemeshac | grep "^fakemeshac.@wifim" | md5sum | head -c 32)
 		[ "${oldcfgmd5}" = "${newcfgmd5}" ] || {
 			logger -t fakemesh "agent_sync_config($pid): config change!"
-			#delete old wifi config
+			# --- CORRECCI N --- SOLO BORRAR meshx* --- #
 			I=0
 			while uci get wireless.@wifi-iface[$I] &>/dev/null; do
-				if uci show wireless.@wifi-iface[$I] | grep -q wireless.meshx[01]=wifi-iface; then
+				name=$(uci -q get wireless.@wifi-iface[$I].'.name')
+				net=$(uci -q get wireless.@wifi-iface[$I].network)
+				if echo "$name" | grep -q '^meshx' || echo "$net" | grep -q '^meshx'; then
+					uci delete wireless.@wifi-iface[$I] &>/dev/null
+				else
 					I=$((I+1))
-					continue
 				fi
-				uci delete wireless.@wifi-iface[$I] &>/dev/null
 			done
+			# --- FIN CORRECCI N ---
 
 			J=0
 			K=0
@@ -515,12 +520,29 @@ agent_fix_channel()
 				if [ "$chan" != "$channel" ]; then
 					logger -t fakemesh "agent_fix_channel($pid): Setting up channel ($chan) for ${radio}"
 					uci set wireless.${radio}.channel="$chan"
-					# --- Ajusta HTMODE según banda aquí ---
+					# --- Ajusta HTMODE seg n banda aqu  ---
 					if [ "$band" = "5g" ]; then
 						htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
-						if [ "$htmode" = "VHT160" ] && ! ([ "$chan" -ge 36 ] && [ "$chan" -le 44 ]); then
+						# EHT320 NO se debe usar en 5G, baja a EHT160 siempre
+						if [ "$htmode" = "EHT320" ]; then
+							uci set wireless.${radio}.htmode="EHT160"
+						elif [ "$htmode" = "EHT160" ]; then
+							# Solo canales bajos (usualmente 36-64) soportan 160 MHz
+							if ! ([ "$chan" -ge 36 ] && [ "$chan" -le 64 ]); then
+								uci set wireless.${radio}.htmode="EHT80"
+							fi
+						elif [ "$htmode" = "EHT80" ]; then
+							if ! ([ "$chan" -ge 36 ] && [ "$chan" -le 128 ]); then
+								uci set wireless.${radio}.htmode="EHT40"
+							fi
+						elif [ "$htmode" = "EHT40" ]; then
+							if ! ([ "$chan" -ge 36 ] && [ "$chan" -le 144 ]); then
+								uci set wireless.${radio}.htmode="EHT20"
+							fi
+						# Compatibilidad: VHT/HE
+						elif [ "$htmode" = "VHT160" ] && ! ([ "$chan" -ge 36 ] && [ "$chan" -le 64 ]); then
 							uci set wireless.${radio}.htmode="VHT80"
-						elif [ "$htmode" = "HE160" ] && ! ([ "$chan" -ge 36 ] && [ "$chan" -le 44 ]); then
+						elif [ "$htmode" = "HE160" ] && ! ([ "$chan" -ge 36 ] && [ "$chan" -le 64 ]); then
 							uci set wireless.${radio}.htmode="HE80"
 						fi
 					elif [ "$band" = "6g" ]; then
@@ -612,51 +634,61 @@ if [ "$role" = "controller" ]; then
 	rm -rf /tmp/fakemesh_lck*
 
 	test -e /etc/init.d/umdns && {
-	mkdir -p /etc/umdns
-	ln -s /tmp/fakemesh.umdns.json /etc/umdns 2>/dev/null
-	umdns_json="{
+		mkdir -p /etc/umdns
+		ln -s /tmp/fakemesh.umdns.json /etc/umdns 2>/dev/null
+		umdns_json="{
 	\"fakemesh\": {
 		\"service\": \"_fakemesh_${Xid}._tcp.local\",
 		\"port\": 65535,
 		\"txt\": [ \"id=${Xid}\" ]
 	}
 }"
-	[ "$(cat /tmp/fakemesh.umdns.json 2>/dev/null | md5sum | head -c32)" = "$(echo "$umdns_json" | md5sum | head -c32)" ] || {
-	echo "$umdns_json" >/tmp/fakemesh.umdns.json
-	/etc/init.d/umdns restart
-	}
+		[ "$(cat /tmp/fakemesh.umdns.json 2>/dev/null | md5sum | head -c32)" = "$(echo "$umdns_json" | md5sum | head -c32)" ] || {
+			echo "$umdns_json" >/tmp/fakemesh.umdns.json
+			/etc/init.d/umdns restart
+		}
 	}
 
-	# wireless.radio0.band='2g'
-	wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
-	if test -n "$wbandstr"; then
-		radio=$(echo $wbandstr | cut -d\. -f2) # radio0
+	# --- NUEVO BLOQUE PARA SOPORTE DE BANDAS COMBINADAS ---
+	# Convierte el valor de $band en una lista de bandas
+	case "$band" in
+	  2g5g6g) bands="2g 5g 6g" ;;
+	  2g5g)   bands="2g 5g" ;;
+	  5g6g)   bands="5g 6g" ;;
+	  *)      bands="$band" ;;
+	esac
 
-		#meshx0
-		uci set wireless.meshx0=wifi-iface
-		uci set wireless.meshx0.device="${radio}"
-		uci set wireless.meshx0.network='lan'
-		uci set wireless.meshx0.ifname='meshx0'
-		uci set wireless.meshx0.mode='ap'
-		uci set wireless.meshx0.wds='1'
-		uci set wireless.meshx0.ssid="${Xid}"
-		uci set wireless.meshx0.hidden='1'
-		uci set wireless.meshx0.wpa_group_rekey='601'
-		uci set wireless.meshx0.max_inactivity='301'
-		if test -n "${Xkey}"; then
-			uci set wireless.meshx0.encryption='psk2'
-			uci set wireless.meshx0.key="${Xkey}"
-		else
-			uci set wireless.meshx0.encryption='none'
+	K=0
+	for b in $bands; do
+		wbandstr=$(uci show wireless | grep .band=\'${b}\'$ -m1)
+		if test -n "$wbandstr"; then
+			radio=$(echo $wbandstr | cut -d\. -f2)
+			mesh_iface="meshx$K"
+			uci set wireless.$mesh_iface=wifi-iface
+			uci set wireless.$mesh_iface.device="${radio}"
+			uci set wireless.$mesh_iface.network='lan'
+			uci set wireless.$mesh_iface.ifname="$mesh_iface"
+			uci set wireless.$mesh_iface.mode='ap'
+			uci set wireless.$mesh_iface.wds='1'
+			uci set wireless.$mesh_iface.ssid="${Xid}"
+			uci set wireless.$mesh_iface.hidden='0'
+			uci set wireless.$mesh_iface.wpa_group_rekey='601'
+			uci set wireless.$mesh_iface.max_inactivity='301'
+			if test -n "${Xkey}"; then
+				uci set wireless.$mesh_iface.encryption='sae'
+				uci set wireless.$mesh_iface.key="${Xkey}"
+			else
+				uci set wireless.$mesh_iface.encryption='none'
+			fi
+			if [ "$fronthaul_disabled" = "1" ]; then
+				uci set wireless.$mesh_iface.disabled='1'
+			else
+				uci delete wireless.$mesh_iface.disabled 2>/dev/null
+			fi
+			K=$((K+1))
 		fi
-		if [ "$fronthaul_disabled" = "1" ]; then
-			uci set wireless.meshx0.disabled='1'
-		else
-			uci delete wireless.meshx0.disabled 2>/dev/null
-		fi
-		#meshx1
-		uci delete wireless.meshx1 &>/dev/null
-	fi
+	done
+	# --- FIN BLOQUE NUEVO ---
 
 	uci delete dhcp.meshx0 &>/dev/null
 	uci delete network.meshx0 &>/dev/null
@@ -680,7 +712,7 @@ if [ "$role" = "controller" ]; then
 			uci add_list network.@device[$lan_idx].ports="$lp"
 		done
 	}
-
+	
 	#delete meshx0 from lan zone
 	lan_idx=0
 	while uci get firewall.@zone[$lan_idx] &>/dev/null && [ $(uci get firewall.@zone[$lan_idx].name) != "lan" ]; do lan_idx=$((lan_idx+1)); done
@@ -696,7 +728,7 @@ if [ "$role" = "controller" ]; then
 	}
 
 	# === BLOQUE PARA CREAR LAS SECCIONES WIFIM EN FAKEMESHAC ===
-	mesh_bands="2g 5g 6g"  # o ajusta según radios detectadas
+	mesh_bands="2g 5g 6g"  # o ajusta seg n radios detectadas
 
 	for idx in 0 1 2; do
 		band=$(echo $mesh_bands | awk "{print \$$(($idx+1))}")
@@ -770,16 +802,16 @@ else
 	/etc/init.d/sta_disable enabled 2>/dev/null && /etc/init.d/sta_disable disable
 
 	test -e /etc/init.d/umdns && {
-	rm /tmp/fakemesh.umdns.json 2>/dev/null && \
-	/etc/init.d/umdns restart
+		rm /tmp/fakemesh.umdns.json 2>/dev/null && \
+		/etc/init.d/umdns restart
 	}
 
-	# wireless.radio0.band='2g'
+		# wireless.radio0.band='2g'
 	wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
 	if test -n "$wbandstr"; then
 		radio=$(echo $wbandstr | cut -d\. -f2) # radio0
 
-		#meshx0
+		# meshx0 (AP - backhaul)
 		uci set wireless.meshx0=wifi-iface
 		uci set wireless.meshx0.device="${radio}"
 		uci set wireless.meshx0.network='meshx0'
@@ -787,11 +819,11 @@ else
 		uci set wireless.meshx0.mode='ap'
 		uci set wireless.meshx0.wds='1'
 		uci set wireless.meshx0.ssid="${Xid}"
-		uci set wireless.meshx0.hidden='1'
+		uci set wireless.meshx0.hidden='0'
 		uci set wireless.meshx0.wpa_group_rekey='601'
 		uci set wireless.meshx0.max_inactivity='301'
 		if test -n "${Xkey}"; then
-			uci set wireless.meshx0.encryption='psk2'
+			uci set wireless.meshx0.encryption='sae'
 			uci set wireless.meshx0.key="${Xkey}"
 		else
 			uci set wireless.meshx0.encryption='none'
@@ -802,7 +834,7 @@ else
 			uci delete wireless.meshx0.disabled 2>/dev/null
 		fi
 
-		#meshx1
+		# meshx1 (STA - backhaul client)
 		uci set wireless.meshx1=wifi-iface
 		uci set wireless.meshx1.device="${radio}"
 		uci set wireless.meshx1.network='meshx0'
@@ -811,7 +843,7 @@ else
 		uci set wireless.meshx1.wds='1'
 		uci set wireless.meshx1.ssid="${Xid}"
 		if test -n "${Xkey}"; then
-			uci set wireless.meshx1.encryption='psk2'
+			uci set wireless.meshx1.encryption='sae'
 			uci set wireless.meshx1.key="${Xkey}"
 		else
 			uci set wireless.meshx1.encryption='none'
@@ -834,11 +866,11 @@ else
 			uci set wireless.meshx2.mode='ap'
 			uci set wireless.meshx2.wds='1'
 			uci set wireless.meshx2.ssid="${Xid}"
-			uci set wireless.meshx2.hidden='1'
+			uci set wireless.meshx2.hidden='0'
 			uci set wireless.meshx2.wpa_group_rekey='601'
 			uci set wireless.meshx2.max_inactivity='301'
 			if test -n "${Xkey}"; then
-				uci set wireless.meshx2.encryption='psk2'
+				uci set wireless.meshx2.encryption='sae'
 				uci set wireless.meshx2.key="${Xkey}"
 			else
 				uci set wireless.meshx2.encryption='none'
@@ -848,14 +880,18 @@ else
 			else
 				uci delete wireless.meshx2.disabled 2>/dev/null
 			fi
-		fi
-
-		if [ "$role" = "agent" ] && [ "$(uci get wireless.${radio}.channel 2>/dev/null || echo auto)" = "auto" ]; then
-			if [ "$band" = "5g" ]; then
-				uci set wireless.${radio}.channel='36'
-			else
-				uci set wireless.${radio}.channel='1'
+			# Forzar canal 37 SOLO para meshx2 si est  en auto o vac o
+			meshx2_channel=$(uci get wireless.${radio6g}.channel 2>/dev/null || echo auto)
+			if [ "$meshx2_channel" = "auto" ] || [ -z "$meshx2_channel" ]; then
+				uci set wireless.${radio6g}.channel='37'
 			fi
+			# Ajuste opcional HTMODE para 37 (solo EHT40 o EHT20)
+			meshx2_htmode=$(uci get wireless.${radio6g}.htmode 2>/dev/null)
+			case "$meshx2_htmode" in
+				EHT320|EHT160|EHT80)
+					uci set wireless.${radio6g}.htmode='EHT40'
+					;;
+			esac
 		fi
 	fi
 
@@ -925,7 +961,7 @@ nft -a list chain inet fw4 output_lan 2>/dev/null | grep -o "fakemesh_mark_0x100
 nft insert rule inet fw4 output_lan counter meta mark set mark or 0x10000 comment "fakemesh_mark_0x10000" 2>/dev/null
 
 nft -a list chain inet fw4 srcnat 2>/dev/null | grep -o "fakemesh_mark_0x10000.*" | while read _ _ _ handle; do nft delete rule inet fw4 srcnat handle \$handle; done
-nft insert rule inet fw4 srcnat oifname { \$(echo \$(fw4 -q zone lan | grep -v '*' | sort | uniq | sed 's/\(.*\)/"\1",/g') | sed 's/,$//') } mark and 0x10000 == 0x10000 counter masquerade comment "fakemesh_mark_0x10000" 2>/dev/null
+nft insert rule inet fw4 srcnat oifname { \$(echo \$(fw4 -q zone lan | grep -v '*' | sort | uniq | sed 's/\(.*\)/\"\1\",/g') | sed 's/,$//') } mark and 0x10000 == 0x10000 counter masquerade comment "fakemesh_mark_0x10000" 2>/dev/null
 EOT
 	ln -s /tmp/fakemesh.firewall.include /usr/share/fakemesh/firewall.include 2>/dev/null
 	grep -q "^sh /usr/share/fakemesh/firewall.include" /etc/firewall.include || echo "sh /usr/share/fakemesh/firewall.include" >>/etc/firewall.include
@@ -952,4 +988,4 @@ EOT
 	 /etc/init.d/network reload
 	 /etc/init.d/dnsmasq reload
 	 exec /usr/sbin/fakemesh agent_fix_channel & )&
-fi       
+fi
