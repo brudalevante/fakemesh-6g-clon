@@ -17,7 +17,6 @@ return view.extend({
 	},
 
 	render: function(data) {
-
 		var m, s, o;
 
 		m = new form.Map('fakemesh', [_('Fake Mesh Setup')],
@@ -39,12 +38,16 @@ return view.extend({
 		o.password = true;
 		o.datatype = 'wpakey';
 
-		// Añadimos la banda 6g a la configuración básica
+		// A�adimos la banda 6g y combinaciones tambi�n a la configuraci�n b�sica
 		o = s.option(form.ListValue, 'band', _('Band'));
+		o.value('2g5g6g', _('2G+5G+6G'));
+		o.value('5g6g', _('5G+6G'));
+		o.value('2g5g', _('2G+5G'));
 		o.value('6g', _('6G'));
 		o.value('5g', _('5G'));
 		o.value('2g', _('2G'));
-		o.default = '5g';
+		o.default = '2g5g6g';
+		
 
 		o = s.option(form.ListValue, 'role', _('Role'), _('Set the gateway router as controller, others as agent.'));
 		o.value('wap', _('Wired AP (ethernet as backhaul)'));
@@ -94,6 +97,7 @@ return view.extend({
 		o.rmempty = false;
 		if (current_role != 'controller') o.readonly = true;
 
+		// Todas las opciones de cifrado, pero advertiremos si la combinaci�n es inv�lida
 		o = s.option(form.ListValue, 'encryption', _('Encryption'));
 		o.value('none', _('No Encryption'));
 		o.value('psk', _('WPA-PSK'));
@@ -108,7 +112,18 @@ return view.extend({
 		o.value('eap192', _('WPA2-EAP 192-bit Mode (strong security)'));
 		o.value('eap-mixed', _('WPA2-EAP/WPA3-EAP Mixed Mode (strong security)'));
 		o.value('psk-eap-mixed', _('WPA-PSK/WPA-EAP Mixed Mode (medium security)'));
+		o.default = 'sae'; // Valor por defecto seguro para mesh 6ghz
 		if (current_role != 'controller') o.readonly = true;
+
+		// L�gica para mostrar advertencia si la combinaci�n banda+cifrado es inv�lida
+		o.validate = function(section_id, value) {
+			var band = this.sectionFormValue ? (this.sectionFormValue(section_id, 'band') || '5g') : '5g';
+			value = value || 'sae';
+			if (band === '6g' && ['psk', 'psk2', 'psk-mixed', 'wpa', 'wpa2', 'wpa3', 'eap192', 'eap-mixed', 'psk-eap-mixed'].indexOf(value) !== -1) {
+				return _('Este tipo de cifrado no est� permitido en 6GHz. Usa WPA3-SAE, OWE o SAE-mixed.');
+			}
+			return true;
+		};
 
 		o = s.option(form.Value, 'key', _('Key'));
 		o.depends('encryption', 'psk');
@@ -116,13 +131,13 @@ return view.extend({
 		o.depends('encryption', 'psk-mixed');
 		o.depends('encryption', 'sae');
 		o.depends('encryption', 'sae-mixed');
-		o.depends('encryption', 'psk-eap-mixed'); // Solo si tu firmware soporta este modo mixto con clave
+		o.depends('encryption', 'psk-eap-mixed');
 		o.rmempty = false;
 		o.password = true;
 		o.datatype = 'wpakey';
 		if (current_role != 'controller') o.readonly = true;
 
-		// Añadimos la banda 6g y combinaciones a la gestión inalámbrica
+		// A�adimos la banda 6g y combinaciones a la gesti�n inal�mbrica
 		o = s.option(form.ListValue, 'band', _('Band'));
 		o.value('2g5g6g', _('2G+5G+6G'));
 		o.value('5g6g', _('5G+6G'));
