@@ -370,6 +370,8 @@ agent_sync_config()
 				enabled=$(uci get fakemeshac.@wifim[$J].enabled || echo 1)
 
 				[ "$bands" = "2g5g" ] && bands="2g 5g"
+				[ "$bands" = "2g5g6g" ] && bands="2g 5g 6g"
+				[ "$bands" = "5g6g" ] && bands="5g 6g"
 
 				[ "$enabled" = "1" ] && {
 					for band in $bands; do
@@ -746,7 +748,7 @@ if [ "$role" = "controller" ]; then
 	done
 	uci commit fakemeshac	
 
-	# reload firewall
+# reload firewall
 	uci delete firewall.fakemesh &>/dev/null && uci commit firewall
 
 	mkdir -p /usr/share/fakemesh
@@ -988,4 +990,4 @@ EOT
 	 /etc/init.d/network reload
 	 /etc/init.d/dnsmasq reload
 	 exec /usr/sbin/fakemesh agent_fix_channel & )&
-fi
+fi 
