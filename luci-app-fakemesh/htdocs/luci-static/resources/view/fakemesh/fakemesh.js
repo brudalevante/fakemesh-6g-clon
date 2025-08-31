@@ -38,7 +38,7 @@ return view.extend({
 		o.password = true;
 		o.datatype = 'wpakey';
 
-		// A�adimos la banda 6g y combinaciones tambi�n a la configuraci�n b�sica
+		// Añadimos la banda 6g y combinaciones también a la configuración básica
 		o = s.option(form.ListValue, 'band', _('Band'));
 		o.value('2g5g6g', _('2G+5G+6G'));
 		o.value('5g6g', _('5G+6G'));
@@ -97,7 +97,7 @@ return view.extend({
 		o.rmempty = false;
 		if (current_role != 'controller') o.readonly = true;
 
-		// Todas las opciones de cifrado, pero advertiremos si la combinaci�n es inv�lida
+		// Todas las opciones de cifrado, pero advertiremos si la combinación es inválida
 		o = s.option(form.ListValue, 'encryption', _('Encryption'));
 		o.value('none', _('No Encryption'));
 		o.value('psk', _('WPA-PSK'));
@@ -115,12 +115,12 @@ return view.extend({
 		o.default = 'sae'; // Valor por defecto seguro para mesh 6ghz
 		if (current_role != 'controller') o.readonly = true;
 
-		// L�gica para mostrar advertencia si la combinaci�n banda+cifrado es inv�lida
+		// Lógica para mostrar advertencia si la combinación banda+cifrado es inválida
 		o.validate = function(section_id, value) {
 			var band = this.sectionFormValue ? (this.sectionFormValue(section_id, 'band') || '5g') : '5g';
 			value = value || 'sae';
 			if (band === '6g' && ['psk', 'psk2', 'psk-mixed', 'wpa', 'wpa2', 'wpa3', 'eap192', 'eap-mixed', 'psk-eap-mixed'].indexOf(value) !== -1) {
-				return _('Este tipo de cifrado no est� permitido en 6GHz. Usa WPA3-SAE, OWE o SAE-mixed.');
+				return _('Este tipo de cifrado no está permitido en 6GHz. Usa WPA3-SAE, OWE o SAE-mixed.');
 			}
 			return true;
 		};
@@ -137,7 +137,7 @@ return view.extend({
 		o.datatype = 'wpakey';
 		if (current_role != 'controller') o.readonly = true;
 
-		// A�adimos la banda 6g y combinaciones a la gesti�n inal�mbrica
+		// Añadimos la banda 6g y combinaciones a la gestión inalámbrica
 		o = s.option(form.ListValue, 'band', _('Band'));
 		o.value('2g5g6g', _('2G+5G+6G'));
 		o.value('5g6g', _('5G+6G'));
