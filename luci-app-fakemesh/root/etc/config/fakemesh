@@ -4,5 +4,5 @@ config fakemesh 'default'
 	option key '12345678'
 	option band '6g'
 	option role 'controller' # agent/controller
-	option band_steer_helper 'none' # usteer/dawn/none
+	option band_steer_helper 'usteer' # usteer/dawn/none
 	option fronthaul_disabled '0'
