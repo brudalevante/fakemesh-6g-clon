@@ -17,6 +17,7 @@ return view.extend({
 	},
 
 	render: function(data) {
+
 		var m, s, o;
 
 		m = new form.Map('fakemesh', [_('Fake Mesh Setup')],
@@ -38,7 +39,6 @@ return view.extend({
 		o.password = true;
 		o.datatype = 'wpakey';
 
-		// Añadimos la banda 6g y combinaciones también a la configuración básica
 		o = s.option(form.ListValue, 'band', _('Band'));
 		o.value('2g5g6g', _('2G+5G+6G'));
 		o.value('5g6g', _('5G+6G'));
@@ -46,8 +46,7 @@ return view.extend({
 		o.value('6g', _('6G'));
 		o.value('5g', _('5G'));
 		o.value('2g', _('2G'));
-		o.default = '2g5g6g';
-		
+		o.default = '6g';
 
 		o = s.option(form.ListValue, 'role', _('Role'), _('Set the gateway router as controller, others as agent.'));
 		o.value('wap', _('Wired AP (ethernet as backhaul)'));
@@ -70,7 +69,7 @@ return view.extend({
 		o.value('none', _('None'));
 		o.value('usteer', _('usteer'));
 		o.value('dawn', _('DAWN'));
-		o.default = 'none';
+		o.default = 'usteer';
 
 		o = s.option(form.Flag, 'fronthaul_disabled', _('Fronthaul Disabled'), _('Disable fronthaul Wi-Fi signal on this node.'));
 		o.enabled = '1';
@@ -97,7 +96,6 @@ return view.extend({
 		o.rmempty = false;
 		if (current_role != 'controller') o.readonly = true;
 
-		// Todas las opciones de cifrado, pero advertiremos si la combinación es inválida
 		o = s.option(form.ListValue, 'encryption', _('Encryption'));
 		o.value('none', _('No Encryption'));
 		o.value('psk', _('WPA-PSK'));
@@ -111,19 +109,8 @@ return view.extend({
 		o.value('owe', _('OWE (open network)'));
 		o.value('eap192', _('WPA2-EAP 192-bit Mode (strong security)'));
 		o.value('eap-mixed', _('WPA2-EAP/WPA3-EAP Mixed Mode (strong security)'));
-		o.value('psk-eap-mixed', _('WPA-PSK/WPA-EAP Mixed Mode (medium security)'));
-		o.default = 'sae'; // Valor por defecto seguro para mesh 6ghz
+		o.value('psk-eap-mixed', _('WPA-PSK/WPA-EAP Mixed Mode (medium security)'))		
 		if (current_role != 'controller') o.readonly = true;
-
-		// Lógica para mostrar advertencia si la combinación banda+cifrado es inválida
-		o.validate = function(section_id, value) {
-			var band = this.sectionFormValue ? (this.sectionFormValue(section_id, 'band') || '5g') : '5g';
-			value = value || 'sae';
-			if (band === '6g' && ['psk', 'psk2', 'psk-mixed', 'wpa', 'wpa2', 'wpa3', 'eap192', 'eap-mixed', 'psk-eap-mixed'].indexOf(value) !== -1) {
-				return _('Este tipo de cifrado no está permitido en 6GHz. Usa WPA3-SAE, OWE o SAE-mixed.');
-			}
-			return true;
-		};
 
 		o = s.option(form.Value, 'key', _('Key'));
 		o.depends('encryption', 'psk');
@@ -137,7 +124,6 @@ return view.extend({
 		o.datatype = 'wpakey';
 		if (current_role != 'controller') o.readonly = true;
 
-		// Añadimos la banda 6g y combinaciones a la gestión inalámbrica
 		o = s.option(form.ListValue, 'band', _('Band'));
 		o.value('2g5g6g', _('2G+5G+6G'));
 		o.value('5g6g', _('5G+6G'));
@@ -145,7 +131,7 @@ return view.extend({
 		o.value('6g', _('6G'));
 		o.value('5g', _('5G'));
 		o.value('2g', _('2G'));
-		o.default = '2g5g6g';
+		o.default = '2g5g6g';		
 		if (current_role != 'controller') o.readonly = true;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
