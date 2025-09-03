@@ -181,12 +181,12 @@ agent_lost_ac()
 			uci set wireless.wifinet$K.network='lan'
 			uci set wireless.wifinet$K.mode='ap'
 			uci set wireless.wifinet$K.ssid="${ssid}"
-			uci set wireless.wifinet$K.encryption="psk2"
+			uci set wireless.wifinet$K.encryption="sae"
 			uci set wireless.wifinet$K.key="${ssid_passwd}"
 			uci set wireless.wifinet$K.wpa_group_rekey='601'
 			uci set wireless.wifinet$K.max_inactivity='301'
-			if uci get wireless.${radio}.path | grep -q bcma || iwinfo wlan${radio:5} info | grep -qi Cypress; then
-				WLAN_IDX=${radio:5}
+			if uci get wireless.${radio}.path | grep -q bcma || iwinfo wlan${radio:6} info | grep -qi Cypress; then
+				WLAN_IDX=${radio:6}
 				uci set wireless.wifinet$K.ifname="wlan${WLAN_IDX}"
 			else
 				uci set wireless.wifinet$K.ieee80211r='1'
@@ -350,18 +350,16 @@ agent_sync_config()
 			# --- CORRECCI N --- SOLO BORRAR meshx* --- #
 			I=0
 			while uci get wireless.@wifi-iface[$I] &>/dev/null; do
-				name=$(uci -q get wireless.@wifi-iface[$I].'.name')
-				net=$(uci -q get wireless.@wifi-iface[$I].network)
-				if echo "$name" | grep -q '^meshx' || echo "$net" | grep -q '^meshx'; then
-					uci delete wireless.@wifi-iface[$I] &>/dev/null
-				else
+				if uci show wireless.@wifi-iface[$I] | grep -q wireless.meshx[01]=wifi-iface; then
 					I=$((I+1))
+					continue
 				fi
+				uci delete wireless.@wifi-iface[$I] &>/dev/null
 			done
-			# --- FIN CORRECCI N ---
 
 			J=0
 			K=0
+
 			while uci get fakemeshac.@wifim[$J] &>/dev/null; do
 				ssid=$(uci get fakemeshac.@wifim[$J].ssid)
 				encryption=$(uci get fakemeshac.@wifim[$J].encryption)
@@ -369,10 +367,8 @@ agent_sync_config()
 				bands=$(uci get fakemeshac.@wifim[$J].band)
 				enabled=$(uci get fakemeshac.@wifim[$J].enabled || echo 1)
 
-				[ "$bands" = "2g5g" ] && bands="2g 5g"
 				[ "$bands" = "2g5g6g" ] && bands="2g 5g 6g"
-				[ "$bands" = "5g6g" ] && bands="5g 6g"
-
+				
 				[ "$enabled" = "1" ] && {
 					for band in $bands; do
 						for wbandstr in $(uci show wireless | grep .band=\'${band}\'$); do
@@ -883,10 +879,9 @@ else
 				uci delete wireless.meshx2.disabled 2>/dev/null
 			fi
 			# Forzar canal 37 SOLO para meshx2 si est  en auto o vac o
-			meshx2_channel=$(uci get wireless.${radio6g}.channel 2>/dev/null || echo "")
-			if [ -z "$meshx2_channel" ] || [ "$meshx2_channel" = "auto" ]; then
-   			# Elige tu canal favorito aquí, por ejemplo el 37
-    		uci set wireless.${radio6g}.channel='37'
+			meshx2_channel=$(uci get wireless.${radio6g}.channel 2>/dev/null || echo auto)
+			if [ "$meshx2_channel" = "auto" ] || [ -z "$meshx2_channel" ]; then
+				uci set wireless.${radio6g}.channel='37'
 			fi
 			# Ajuste opcional HTMODE para 37 (solo EHT40 o EHT20)
 			meshx2_htmode=$(uci get wireless.${radio6g}.htmode 2>/dev/null)
