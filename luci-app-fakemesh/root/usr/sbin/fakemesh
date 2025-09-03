@@ -883,9 +883,10 @@ else
 				uci delete wireless.meshx2.disabled 2>/dev/null
 			fi
 			# Forzar canal 37 SOLO para meshx2 si est  en auto o vac o
-			meshx2_channel=$(uci get wireless.${radio6g}.channel 2>/dev/null || echo auto)
-			if [ "$meshx2_channel" = "auto" ] || [ -z "$meshx2_channel" ]; then
-				uci set wireless.${radio6g}.channel='37'
+			meshx2_channel=$(uci get wireless.${radio6g}.channel 2>/dev/null || echo "")
+			if [ -z "$meshx2_channel" ] || [ "$meshx2_channel" = "auto" ]; then
+   			# Elige tu canal favorito aquí, por ejemplo el 37
+    		uci set wireless.${radio6g}.channel='37'
 			fi
 			# Ajuste opcional HTMODE para 37 (solo EHT40 o EHT20)
 			meshx2_htmode=$(uci get wireless.${radio6g}.htmode 2>/dev/null)
