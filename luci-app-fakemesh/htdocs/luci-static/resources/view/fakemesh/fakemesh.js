@@ -46,7 +46,7 @@ return view.extend({
 		o.value('6g', _('6G'));
 		o.value('5g', _('5G'));
 		o.value('2g', _('2G'));
-		o.default = '6g';
+		o.default = '2g5g6g';
 
 		o = s.option(form.ListValue, 'role', _('Role'), _('Set the gateway router as controller, others as agent.'));
 		o.value('wap', _('Wired AP (ethernet as backhaul)'));
