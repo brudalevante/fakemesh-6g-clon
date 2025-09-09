@@ -663,7 +663,7 @@ if [ "$role" = "controller" ]; then
 			radio=$(echo $wbandstr | cut -d\. -f2)
 			mesh_iface="meshx$K"
 			uci set wireless.$mesh_iface=wifi-iface
-			uci set wireless.$mesh_iface.device="${wifinet}"
+			uci set wireless.$mesh_iface.device="${radio}"
 			uci set wireless.$mesh_iface.network='lan'
 			uci set wireless.$mesh_iface.ifname="$mesh_iface"
 			uci set wireless.$mesh_iface.mode='ap'
@@ -683,6 +683,23 @@ if [ "$role" = "controller" ]; then
 			else
 				uci delete wireless.$mesh_iface.disabled 2>/dev/null
 			fi
+			
+			# Configure 6G specific settings for meshx2
+			if [ "$b" = "6g" ] && [ "$mesh_iface" = "meshx2" ]; then
+				# Force channel 37 if in auto or empty
+				channel=$(uci get wireless.${radio}.channel 2>/dev/null || echo auto)
+				if [ "$channel" = "auto" ] || [ -z "$channel" ]; then
+					uci set wireless.${radio}.channel='37'
+				fi
+				# Adjust HTMODE for 6G (only EHT40 or EHT20 for channel 37)
+				htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+				case "$htmode" in
+					EHT320|EHT160|EHT80)
+						uci set wireless.${radio}.htmode='EHT40'
+						;;
+				esac
+			fi
+			
 			K=$((K+1))
 		fi
 	done
@@ -859,7 +876,7 @@ else
 
 			uci set wireless.meshx2=wifi-iface
 			uci set wireless.meshx2.device="${radio6g}"
-			uci set wireless.meshx2.network='meshx2'
+			uci set wireless.meshx2.network='meshx0'
 			uci set wireless.meshx2.ifname='meshx2'
 			uci set wireless.meshx2.mode='ap'
 			uci set wireless.meshx2.wds='1'
@@ -878,7 +895,7 @@ else
 			else
 				uci delete wireless.meshx2.disabled 2>/dev/null
 			fi
-			# Forzar canal 37 SOLO para meshx2 si est  en auto o vac o
+			# Forzar canal 37 SOLO para meshx2 si está en auto o vacío
 			meshx2_channel=$(uci get wireless.${radio6g}.channel 2>/dev/null || echo auto)
 			if [ "$meshx2_channel" = "auto" ] || [ -z "$meshx2_channel" ]; then
 				uci set wireless.${radio6g}.channel='37'
