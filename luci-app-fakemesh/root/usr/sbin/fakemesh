@@ -5,6 +5,65 @@
 
 band_steer_helper=${band_steer_helper:-none}
 
+# Function to get radio device for a specific band with robust detection
+get_radio_for_band() {
+	local band="$1"
+	local radio=""
+	
+	# First try: direct band match in UCI
+	radio=$(uci show wireless 2>/dev/null | grep ".band='${band}'" | head -n1 | cut -d. -f2)
+	
+	# If not found, try fallback detection based on common patterns
+	if [ -z "$radio" ]; then
+		case "$band" in
+			"2g"|"2.4g")
+				# Try common 2G radio names
+				for r in radio0 phy0-ap0 wifi0; do
+					if uci get wireless.$r >/dev/null 2>&1; then
+						local hwmode=$(uci get wireless.$r.hwmode 2>/dev/null)
+						local path=$(uci get wireless.$r.path 2>/dev/null)
+						# Check if it's likely a 2G radio
+						if [ "$hwmode" = "11g" ] || [ "$hwmode" = "11ng" ] || echo "$path" | grep -q "2g\|2\.4"; then
+							radio="$r"
+							break
+						fi
+					fi
+				done
+				;;
+			"5g")
+				# Try common 5G radio names  
+				for r in radio1 phy1-ap0 wifi1; do
+					if uci get wireless.$r >/dev/null 2>&1; then
+						local hwmode=$(uci get wireless.$r.hwmode 2>/dev/null)
+						local path=$(uci get wireless.$r.path 2>/dev/null)
+						# Check if it's likely a 5G radio
+						if [ "$hwmode" = "11a" ] || [ "$hwmode" = "11na" ] || echo "$path" | grep -q "5g\|5\."; then
+							radio="$r"
+							break
+						fi
+					fi
+				done
+				;;
+			"6g")
+				# Try common 6G radio names
+				for r in radio2 phy2-ap0 wifi2; do
+					if uci get wireless.$r >/dev/null 2>&1; then
+						local hwmode=$(uci get wireless.$r.hwmode 2>/dev/null)
+						local path=$(uci get wireless.$r.path 2>/dev/null)
+						# Check if it's likely a 6G radio
+						if echo "$hwmode" | grep -q "11ax\|11be" || echo "$path" | grep -q "6g\|6\."; then
+							radio="$r"
+							break
+						fi
+					fi
+				done
+				;;
+		esac
+	fi
+	
+	echo "$radio"
+}
+
 band_steer_helper_switch()
 {
 	if [ "$band_steer_helper" = "usteer" ]; then
@@ -172,10 +231,8 @@ agent_lost_ac()
 	ssid_passwd=$(uci get base_config.@status[0].SSID_PASSWD)
 	K=0
 	for band in 2g 5g 6g; do
-		wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
-		if test -n "$wbandstr"; then
-			radio=$(echo $wbandstr | cut -d\. -f2)
-
+		radio=$(get_radio_for_band "$band")
+		if test -n "$radio"; then
 			uci set wireless.wifinet$K=wifi-iface
 			uci set wireless.wifinet$K.device="${radio}"
 			uci set wireless.wifinet$K.network='lan'
@@ -371,10 +428,8 @@ agent_sync_config()
 				
 				[ "$enabled" = "1" ] && {
 					for band in $bands; do
-						for wbandstr in $(uci show wireless | grep .band=\'${band}\'$); do
-						if test -n "$wbandstr"; then
-							radio=$(echo $wbandstr | cut -d\. -f2)
-
+						radio=$(get_radio_for_band "$band")
+						if test -n "$radio"; then
 							uci set wireless.wifinet$K=wifi-iface
 							uci set wireless.wifinet$K.device="${radio}"
 							if [ "$role" = "controller" ]; then
@@ -414,7 +469,6 @@ agent_sync_config()
 
 							K=$((K+1))
 						fi
-						done
 					done
 				}
 
@@ -457,8 +511,11 @@ agent_keep_alive()
 
 	sta_lost=0
 
-	wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
-	radio=$(echo $wbandstr | cut -d\. -f2)
+	radio=$(get_radio_for_band "${band}")
+	if test -z "$radio"; then
+		logger -t fakemesh "agent_keep_alive($pid): No radio found for band ${band}!"
+		return 1
+	fi
 	channel=$(uci get wireless.${radio}.channel)
 	test -n "$channel" || return 1
 
@@ -499,8 +556,11 @@ agent_fix_channel()
 
 	[ "$role" = "agent" ] || return 0
 
-	wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
-	radio=$(echo $wbandstr | cut -d\. -f2)
+	radio=$(get_radio_for_band "${band}")
+	if test -z "$radio"; then
+		logger -t fakemesh "agent_fix_channel($pid): No radio found for band ${band}!"
+		return 1
+	fi
 	channel=$(uci get wireless.${radio}.channel)
 	test -n "$channel" || return 1
 
@@ -658,12 +718,11 @@ if [ "$role" = "controller" ]; then
 
 	K=0
 	for b in $bands; do
-		wbandstr=$(uci show wireless | grep .band=\'${b}\'$ -m1)
-		if test -n "$wbandstr"; then
-			radio=$(echo $wbandstr | cut -d\. -f2)
+		radio=$(get_radio_for_band "$b")
+		if test -n "$radio"; then
 			mesh_iface="meshx$K"
 			uci set wireless.$mesh_iface=wifi-iface
-			uci set wireless.$mesh_iface.device="${wifinet}"
+			uci set wireless.$mesh_iface.device="${radio}"
 			uci set wireless.$mesh_iface.network='lan'
 			uci set wireless.$mesh_iface.ifname="$mesh_iface"
 			uci set wireless.$mesh_iface.mode='ap'
@@ -683,6 +742,23 @@ if [ "$role" = "controller" ]; then
 			else
 				uci delete wireless.$mesh_iface.disabled 2>/dev/null
 			fi
+			
+			# Configure 6G specific settings for meshx2
+			if [ "$b" = "6g" ] && [ "$mesh_iface" = "meshx2" ]; then
+				# Force channel 37 if in auto or empty
+				channel=$(uci get wireless.${radio}.channel 2>/dev/null || echo auto)
+				if [ "$channel" = "auto" ] || [ -z "$channel" ]; then
+					uci set wireless.${radio}.channel='37'
+				fi
+				# Adjust HTMODE for 6G (only EHT40 or EHT20 for channel 37)
+				htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+				case "$htmode" in
+					EHT320|EHT160|EHT80)
+						uci set wireless.${radio}.htmode='EHT40'
+						;;
+				esac
+			fi
+			
 			K=$((K+1))
 		fi
 	done
@@ -804,10 +880,9 @@ else
 		/etc/init.d/umdns restart
 	}
 
-		# wireless.radio0.band='2g'
-	wbandstr=$(uci show wireless | grep .band=\'${band}\'$ -m1)
-	if test -n "$wbandstr"; then
-		radio=$(echo $wbandstr | cut -d\. -f2) # radio0
+	# wireless.radio0.band='2g'
+	radio=$(get_radio_for_band "${band}")
+	if test -n "$radio"; then
 
 		# meshx0 (AP - backhaul)
 		uci set wireless.meshx0=wifi-iface
@@ -853,13 +928,12 @@ else
 		fi
 
 		# === SOPORTE 6G ===
-		wbandstr6g=$(uci show wireless | grep .band=\'6g\'$ -m1)
-		if test -n "$wbandstr6g"; then
-			radio6g=$(echo $wbandstr6g | cut -d\. -f2)
+		radio6g=$(get_radio_for_band "6g")
+		if test -n "$radio6g"; then
 
 			uci set wireless.meshx2=wifi-iface
 			uci set wireless.meshx2.device="${radio6g}"
-			uci set wireless.meshx2.network='meshx2'
+			uci set wireless.meshx2.network='meshx0'
 			uci set wireless.meshx2.ifname='meshx2'
 			uci set wireless.meshx2.mode='ap'
 			uci set wireless.meshx2.wds='1'
@@ -878,7 +952,7 @@ else
 			else
 				uci delete wireless.meshx2.disabled 2>/dev/null
 			fi
-			# Forzar canal 37 SOLO para meshx2 si est  en auto o vac o
+			# Forzar canal 37 SOLO para meshx2 si está en auto o vacío
 			meshx2_channel=$(uci get wireless.${radio6g}.channel 2>/dev/null || echo auto)
 			if [ "$meshx2_channel" = "auto" ] || [ -z "$meshx2_channel" ]; then
 				uci set wireless.${radio6g}.channel='37'
