@@ -766,32 +766,33 @@ if [ "$role" = "controller" ]; then
 				uci delete wireless.$mesh_iface.disabled 2>/dev/null
 			fi
 			
-			# Configure 6G specific settings for meshx2
-			if [ "$b" = "6g" ] && [ "$mesh_iface" = "meshx2" ]; then
-				# Force channel 37 if in auto or empty
-				channel=$(uci get wireless.${radio}.channel 2>/dev/null || echo auto)
-				if [ "$channel" = "auto" ] || [ -z "$channel" ]; then
-					uci set wireless.${radio}.channel='37'
-				fi
-				# For multi-band configurations, keep 6G at EHT320 if available
-				# Only adjust HTMODE for single 6G band selection
-				num_bands=$(echo "$bands" | wc -w)
-				if [ "$num_bands" -eq 1 ]; then
-					# Single 6G band - adjust HTMODE for channel 37 compatibility
-					htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
-					case "$htmode" in
-						EHT320|EHT160|EHT80)
-							uci set wireless.${radio}.htmode='EHT40'
-							;;
-					esac
-				else
-					# Multi-band configuration - keep 6G at EHT320 for best performance
-					htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
-					if [ -z "$htmode" ] || [ "$htmode" != "EHT320" ]; then
-						uci set wireless.${radio}.htmode='EHT320'
-					fi
-				fi
-			fi
+# Configure 6G specific settings for meshx2
+if [ "$b" = "6g" ] && [ "$mesh_iface" = "meshx2" ]; then
+    # Force channel 37 if in auto or empty
+    channel=$(uci get wireless.${radio}.channel 2>/dev/null || echo auto)
+    if [ "$channel" = "auto" ] || [ -z "$channel" ]; then
+        uci set wireless.${radio}.channel="37"
+    fi
+
+    # For multi-band configurations, keep 6G at EHT320 if available
+    # Only adjust HTMODE for single 6G band selection
+    num_bands=$(echo "$bands" | wc -w)
+    if [ "$num_bands" -eq 1 ]; then
+        # Single 6G band: adjust HTMODE for channel 37 compatibility
+        htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+        case "$htmode" in
+            EHT320|EHT160|EHT80)
+                uci set wireless.${radio}.htmode='EHT40'
+                ;;
+        esac
+    else
+        # Multi-band configuration - keep 6G at EHT320 for best performance
+        htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+        if [ -z "$htmode" ] || [ "$htmode" != "EHT320" ]; then
+            uci set wireless.${radio}.htmode='EHT320'
+        fi
+    fi
+fi
 		fi
 	done
 	# --- FIN BLOQUE NUEVO ---
@@ -912,8 +913,8 @@ else
 		/etc/init.d/umdns restart
 	}
 
-	# --- PARSE BAND COMBINATIONS FOR AGENT MODE ---
-	# Convert band value to list of bands (same logic as controller)
+	# --- SUPPORT FOR MULTIPLE BANDS IN AGENT MODE ---
+	# Convert band value to band list like controller does
 	case "$band" in
 	  2g5g6g) bands="2g 5g 6g" ;;
 	  2g5g)   bands="2g 5g" ;;
@@ -921,39 +922,80 @@ else
 	  *)      bands="$band" ;;
 	esac
 
-	# Use first band for primary mesh interfaces (meshx0, meshx1)
-	primary_band=$(echo "$bands" | awk '{print $1}')
+	K=0
+	for b in $bands; do
+		radio=$(get_radio_for_band "$b")
+		if test -n "$radio"; then
+			# meshx${K} (AP - backhaul)
+			uci set wireless.meshx$K=wifi-iface
+			uci set wireless.meshx$K.device="${radio}"
+			uci set wireless.meshx$K.network='meshx0'
+			uci set wireless.meshx$K.ifname="meshx$K"
+			uci set wireless.meshx$K.mode='ap'
+			uci set wireless.meshx$K.wds='1'
+			uci set wireless.meshx$K.ssid="${Xid}"
+			uci set wireless.meshx$K.hidden='0'
+			uci set wireless.meshx$K.wpa_group_rekey='601'
+			uci set wireless.meshx$K.max_inactivity='301'
+			if test -n "${Xkey}"; then
+				uci set wireless.meshx$K.encryption='sae'
+				uci set wireless.meshx$K.key="${Xkey}"
+			else
+				uci set wireless.meshx$K.encryption='none'
+			fi
+			if [ "$fronthaul_disabled" = "1" ]; then
+				uci set wireless.meshx$K.disabled='1'
+			else
+				uci delete wireless.meshx$K.disabled 2>/dev/null
+			fi
 
-	# wireless.radio0.band='2g'
-	radio=$(get_radio_for_band "${primary_band}")
-	if test -n "$radio"; then
-
-		# meshx0 (AP - backhaul)
-		uci set wireless.meshx0=wifi-iface
-		uci set wireless.meshx0.device="${radio}"
-		uci set wireless.meshx0.network='meshx0'
-		uci set wireless.meshx0.ifname='meshx0'
-		uci set wireless.meshx0.mode='ap'
-		uci set wireless.meshx0.wds='1'
-		uci set wireless.meshx0.ssid="${Xid}"
-		uci set wireless.meshx0.hidden='0'
-		uci set wireless.meshx0.wpa_group_rekey='601'
-		uci set wireless.meshx0.max_inactivity='301'
-		if test -n "${Xkey}"; then
-			uci set wireless.meshx0.encryption='sae'
-			uci set wireless.meshx0.key="${Xkey}"
-		else
-			uci set wireless.meshx0.encryption='none'
+			# Configure optimal htmode for each band
+			case "$b" in
+				"2g")
+					# Set optimal htmode for 2G band
+					htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+					case "$htmode" in
+						EHT320|EHT160|EHT80)
+							uci set wireless.${radio}.htmode='EHT40'
+							;;
+					esac
+					;;
+				"5g")
+					# Set optimal htmode for 5G band
+					htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+					case "$htmode" in
+						EHT320)
+							uci set wireless.${radio}.htmode='EHT160'
+							;;
+					esac
+					;;
+				"6g")
+					# Keep 6G at EHT320 if possible, only set channel if auto
+					channel=$(uci get wireless.${radio}.channel 2>/dev/null || echo auto)
+					if [ "$channel" = "auto" ] || [ -z "$channel" ]; then
+						# Set a channel that supports EHT320
+						uci set wireless.${radio}.channel='37'
+					fi
+					# Preserve EHT320 for 6G - only downgrade if absolutely necessary
+					htmode=$(uci get wireless.${radio}.htmode 2>/dev/null)
+					if [ -z "$htmode" ]; then
+						uci set wireless.${radio}.htmode='EHT320'
+					fi
+					;;
+			esac
+			
+			K=$((K+1))
 		fi
-		if [ "$fronthaul_disabled" = "1" ]; then
-			uci set wireless.meshx0.disabled='1'
-		else
-			uci delete wireless.meshx0.disabled 2>/dev/null
+	done
 		fi
+	done
 
-		# meshx1 (STA - backhaul client)
+	# Create STA interface (meshx1) only for the primary band to avoid conflicts
+	primary_radio=$(get_radio_for_band "${band}")
+	if test -n "$primary_radio"; then
+		# meshx1 (STA - backhaul client) - only for primary band
 		uci set wireless.meshx1=wifi-iface
-		uci set wireless.meshx1.device="${radio}"
+		uci set wireless.meshx1.device="${primary_radio}"
 		uci set wireless.meshx1.network='meshx0'
 		uci set wireless.meshx1.ifname='meshx1'
 		uci set wireless.meshx1.mode='sta'
@@ -970,7 +1012,6 @@ else
 		else
 			uci delete wireless.meshx1.disabled 2>/dev/null
 		fi
-
 		# === SOPORTE 6G - SOLO SI 6G ESTÁ SELECCIONADA ===
 		# Check if 6G is in the selected bands
 		echo "$bands" | grep -q "6g" && {
