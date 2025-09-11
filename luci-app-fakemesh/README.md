@@ -3,7 +3,7 @@ fakemesh es una topología de red compuesta por un controlador (AC) y uno o vari
 
 La implementación de fakemesh es relativamente sencilla: solo necesitas conectar los dispositivos nodo a la red correcta y configurar el rol y el Mesh ID de cada uno. Al combinar los modos inalámbrico Mesh y AC+AP, resulta muy fácil crear una red mixta, lo que mejora tanto la cobertura como la fiabilidad de la red.
 
-Actualmente, X-WRT integra fakemesh por defecto.
+Actualmente,[brudalevante]([https://github.com/x-wrt/x-wrt](https://github.com/brudalevante/rc4-maxima-potencia-espejo.git))integra fakemesh por defecto.
 
 Uso de fakemesh
 Una vez creada la red, las direcciones de acceso a los dispositivos siguen este formato:
