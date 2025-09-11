@@ -12,7 +12,8 @@ return view.extend({
 		return Promise.all([
 			uci.changes(),
 			uci.load('fakemesh'),
-			uci.load('fakemeshac')
+			uci.load('fakemeshac'),
+			uci.load('wireless')
 		]);
 	},
 
@@ -47,6 +48,13 @@ return view.extend({
 		o.value('5g', _('5G'));
 		o.value('2g', _('2G'));
 		o.default = '2g5g6g';
+		o.onchange = function(ev, section_id, value) {
+			// Provide guidance for band selection
+			if (value === '6g') {
+				return true; // Allow 6G-only but user should be aware of compatibility
+			}
+			return true;
+		};
 
 		o = s.option(form.ListValue, 'role', _('Role'), _('Set the gateway router as controller, others as agent.'));
 		o.value('wap', _('Wired AP (ethernet as backhaul)'));
@@ -77,6 +85,62 @@ return view.extend({
 		o.default = o.disabled;
 
 		var current_role = uci.get('fakemesh', 'default', 'role');
+		var enabled = uci.get('fakemesh', 'default', 'enabled');
+
+		// Add mesh interface status section
+		if (enabled === '1') {
+			s = m.section(form.NamedSection, 'mesh_status', 'fakemesh', _('Mesh Interface Status'));
+			s.addremove = false;
+			s.anonymous = true;
+
+			// Check and display mesh interfaces
+			var meshInterfaces = ['meshx0', 'meshx1', 'meshx2'];
+			var interfaceStatus = [];
+			
+			meshInterfaces.forEach(function(iface) {
+				var ifaceConfig = uci.get('wireless', iface);
+				if (ifaceConfig) {
+					var device = uci.get('wireless', iface, 'device') || _('Unknown');
+					var ssid = uci.get('wireless', iface, 'ssid') || _('Unknown');
+					var disabled = uci.get('wireless', iface, 'disabled');
+					var status = disabled === '1' ? _('Disabled') : _('Enabled');
+					var bandMap = {'meshx0': '2G', 'meshx1': '5G', 'meshx2': '6G'};
+					
+					interfaceStatus.push({
+						name: iface,
+						band: bandMap[iface] || _('Unknown'),
+						device: device,
+						ssid: ssid,
+						status: status
+					});
+				}
+			});
+
+			if (interfaceStatus.length > 0) {
+				o = s.option(form.DummyValue, '_mesh_interfaces', _('Active Mesh Interfaces'));
+				o.rawhtml = true;
+				o.cfgvalue = function() {
+					var html = '<table class="table">';
+					html += '<tr><th>' + _('Interface') + '</th><th>' + _('Band') + '</th><th>' + _('Device') + '</th><th>' + _('SSID') + '</th><th>' + _('Status') + '</th></tr>';
+					interfaceStatus.forEach(function(iface) {
+						html += '<tr>';
+						html += '<td>' + iface.name + '</td>';
+						html += '<td>' + iface.band + '</td>';
+						html += '<td>' + iface.device + '</td>';
+						html += '<td>' + iface.ssid + '</td>';
+						html += '<td>' + iface.status + '</td>';
+						html += '</tr>';
+					});
+					html += '</table>';
+					return html;
+				};
+			} else {
+				o = s.option(form.DummyValue, '_no_interfaces', _('Mesh Interfaces'));
+				o.cfgvalue = function() {
+					return _('No mesh interfaces configured');
+				};
+			}
+		}
 
 		s = m.section(form.GridSection, 'wifim', _('Wireless Management'), current_role != 'controller' ? _('Not available on AP') : '');
 		s.addremove = true;
