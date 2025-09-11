@@ -3,7 +3,7 @@ fakemesh es una topología de red compuesta por un controlador (AC) y uno o vari
 
 La implementación de fakemesh es relativamente sencilla: solo necesitas conectar los dispositivos nodo a la red correcta y configurar el rol y el Mesh ID de cada uno. Al combinar los modos inalámbrico Mesh y AC+AP, resulta muy fácil crear una red mixta, lo que mejora tanto la cobertura como la fiabilidad de la red.
 
-Actualmente,[brudalevante][https://github.com/brudalevante/rc4-maxima-potencia-espejo.git] integra fakemesh por defecto.
+Actualmente,brudalevante[https://github.com/brudalevante/rc4-maxima-potencia-espejo.git] integra fakemesh por defecto.
 
 Uso de fakemesh
 Una vez creada la red, las direcciones de acceso a los dispositivos siguen este formato:
@@ -22,8 +22,8 @@ Resolución de fallos:
 Si un AP queda offline unos 3 minutos, entra en modo de fallo. En este modo, se activa un SSID por defecto que permite acceder para reconfigurar el dispositivo. El SSID y la contraseña por defecto en modo fallo son:
 
 Code
-SSID: X-WRT_XXXX
-CONTRASEÑA: 88888888
+SSID: mesh-brudalevante
+CONTRASEÑA: 12345678
 En modo fallo, la IP de gestión del AP será la puerta de enlace asignada por DHCP. Por ejemplo, si tu PC recibe la IP 192.168.16.x, la IP de gestión del AP será 192.168.16.1.
 
 Componentes básicos de fakemesh
