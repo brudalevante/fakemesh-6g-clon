@@ -332,8 +332,13 @@ agent_sync_config()
 		for b in $init_bands; do
 			uci add fakemeshac wifim
 			uci set fakemeshac.@wifim[-1].ssid="${Xid}-${b}"
-			uci set fakemeshac.@wifim[-1].encryption="sae"
-			uci set fakemeshac.@wifim[-1].key="$Xkey"
+			# Initialize with proper encryption instead of just "sae"
+			if test -n "${Xkey}"; then
+				uci set fakemeshac.@wifim[-1].encryption="sae"
+				uci set fakemeshac.@wifim[-1].key="$Xkey"
+			else
+				uci set fakemeshac.@wifim[-1].encryption="none"
+			fi
 			uci set fakemeshac.@wifim[-1].band="$b"
 			uci set fakemeshac.@wifim[-1].enabled="1"
 		done
@@ -426,16 +431,16 @@ agent_sync_config()
 		newcfgmd5=$(uci show fakemeshac | grep "^fakemeshac.@wifim" | md5sum | head -c 32)
 		[ "${oldcfgmd5}" = "${newcfgmd5}" ] || {
 			logger -t fakemesh "agent_sync_config($pid): config change!"
-			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* --- #
+			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* Y RECREAR REPETIDORES --- #
 			I=0
 			while uci get wireless.@wifi-iface[$I] &>/dev/null; do
-				# Check if this interface is a mesh interface (meshx0, meshx1, or meshx2)
-				if uci show wireless.@wifi-iface[$I] | grep -q 'ifname.*meshx[012]'; then
-					logger -t fakemesh "agent_sync_config($pid): preserving mesh interface $I ($(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null))"
+				# Check if this interface is a mesh backhaul interface (STA mode) - preserve it
+				if uci show wireless.@wifi-iface[$I] | grep -q 'mode.*sta' && uci show wireless.@wifi-iface[$I] | grep -q 'ifname.*meshx[012]'; then
+					logger -t fakemesh "agent_sync_config($pid): preserving STA interface $I ($(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null))"
 					I=$((I+1))
 					continue
 				fi
-				logger -t fakemesh "agent_sync_config($pid): removing non-mesh interface $I"
+				logger -t fakemesh "agent_sync_config($pid): removing interface $I for recreation"
 				uci delete wireless.@wifi-iface[$I] &>/dev/null
 			done
 
@@ -455,23 +460,23 @@ agent_sync_config()
 					for band in $bands; do
 						radio=$(get_radio_for_band "$band")
 						if test -n "$radio"; then
+							# For agents, create AP mode repeater interfaces
 							uci set wireless.wifinet$K=wifi-iface
 							uci set wireless.wifinet$K.device="${radio}"
-							if [ "$role" = "controller" ]; then
-								uci set wireless.wifinet$K.network='lan'
-							else
-								uci set wireless.wifinet$K.network='meshx0'
-							fi
+							uci set wireless.wifinet$K.network='meshx0'
 							uci set wireless.wifinet$K.mode='ap'
 							uci set wireless.wifinet$K.ssid="${ssid}"
 							uci set wireless.wifinet$K.wpa_group_rekey='601'
 							uci set wireless.wifinet$K.max_inactivity='301'
-							if [ "${encryption}" != "none" ]; then
+							
+							# Properly configure encryption
+							if [ "${encryption}" != "none" ] && [ -n "${key}" ]; then
 								uci set wireless.wifinet$K.encryption="${encryption}"
 								uci set wireless.wifinet$K.key="${key}"
 							else
 								uci set wireless.wifinet$K.encryption='none'
 							fi
+							
 							if uci get wireless.${radio}.path | grep -q bcma || iwinfo wlan${radio:5} info | grep -qi Cypress; then
 								WLAN_IDX=${radio:5}
 								uci set wireless.wifinet$K.ifname="wlan${WLAN_IDX}"
@@ -538,13 +543,12 @@ agent_keep_alive()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx0" ;;
+	  5g6g) primary_band="5g"; sta_iface="meshx1" ;;
+	  6g) primary_band="6g"; sta_iface="meshx2" ;;
+	  5g) primary_band="5g"; sta_iface="meshx1" ;;
+	  2g) primary_band="2g"; sta_iface="meshx0" ;;
+	  *) primary_band="$band"; sta_iface="meshx1" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -594,13 +598,12 @@ agent_fix_channel()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx0" ;;
+	  5g6g) primary_band="5g"; sta_iface="meshx1" ;;
+	  6g) primary_band="6g"; sta_iface="meshx2" ;;
+	  5g) primary_band="5g"; sta_iface="meshx1" ;;
+	  2g) primary_band="2g"; sta_iface="meshx0" ;;
+	  *) primary_band="$band"; sta_iface="meshx1" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -956,8 +959,22 @@ else
 	  *)      bands="$band" ;;
 	esac
 
-	# Create mesh interfaces with consistent mapping: 2g->meshx0, 5g->meshx1, 6g->meshx2
+	# Determine primary band for STA interface (backhaul connection)
+	case "$band" in
+	  2g5g6g|2g5g) primary_band="2g" ;;
+	  5g6g) primary_band="5g" ;;
+	  6g) primary_band="6g" ;;
+	  5g) primary_band="5g" ;;
+	  2g) primary_band="2g" ;;
+	  *) primary_band="$band" ;;
+	esac
+
+	# Create mesh interfaces (AP mode) with consistent mapping: 2g->meshx0, 5g->meshx1, 6g->meshx2
+	# BUT exclude the primary band from mesh interface creation to avoid conflicts with STA
 	for b in $bands; do
+		# Skip primary band for mesh interface creation - it will be used for STA
+		[ "$b" = "$primary_band" ] && continue
+		
 		radio=$(get_radio_for_band "$b")
 		if test -n "$radio"; then
 			# Assign interface number based on band type for consistency with controller
@@ -970,7 +987,7 @@ else
 			
 			logger -t fakemesh "agent: creating mesh interface $mesh_iface for band $b on radio $radio"
 			
-			# Create mesh interface for all bands (including 6G)
+			# Create mesh interface for non-primary bands (AP mode for repeating)
 			uci set wireless.$mesh_iface=wifi-iface
 			uci set wireless.$mesh_iface.device="${radio}"
 			uci set wireless.$mesh_iface.network='meshx0'
@@ -1008,18 +1025,17 @@ else
 		fi
 	done
 
-	# Create STA interface for primary band connection to controller
-	case "$band" in
-	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g) primary_band="5g"; sta_iface="meshx1" ;;
-	  6g) primary_band="6g"; sta_iface="meshx2" ;;
-	  5g) primary_band="5g"; sta_iface="meshx1" ;;
-	  2g) primary_band="2g"; sta_iface="meshx1" ;;
-	  *) primary_band="$band"; sta_iface="meshx1" ;;
-	esac
-	
+	# Create STA interface for primary band connection to controller (backhaul)
 	primary_radio=$(get_radio_for_band "${primary_band}")
 	if test -n "$primary_radio"; then
+		# Assign STA interface name based on primary band
+		case "$primary_band" in
+			"2g") sta_iface="meshx0" ;;
+			"5g") sta_iface="meshx1" ;;
+			"6g") sta_iface="meshx2" ;;
+			*) sta_iface="meshx1" ;;  # fallback
+		esac
+		
 		logger -t fakemesh "agent: creating STA interface $sta_iface for primary band $primary_band on radio $primary_radio"
 		
 		# Create STA interface for backhaul client on primary band
@@ -1040,6 +1056,19 @@ else
 			uci set wireless.$sta_iface.disabled='1'
 		else
 			uci delete wireless.$sta_iface.disabled 2>/dev/null
+		fi
+		
+		# Configure 6G specific settings for STA
+		if [ "$primary_band" = "6g" ]; then
+			channel=$(uci get wireless.${primary_radio}.channel 2>/dev/null || echo auto)
+			if [ "$channel" = "auto" ] || [ -z "$channel" ]; then
+				uci set wireless.${primary_radio}.channel='37'
+			fi
+			# Preserve EHT320 for 6G
+			htmode=$(uci get wireless.${primary_radio}.htmode 2>/dev/null)
+			if [ -z "$htmode" ]; then
+				uci set wireless.${primary_radio}.htmode='EHT320'
+			fi
 		fi
 	fi
 
