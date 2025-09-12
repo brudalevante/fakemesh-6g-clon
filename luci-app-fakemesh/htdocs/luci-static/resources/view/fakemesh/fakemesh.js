@@ -95,8 +95,10 @@ return view.extend({
 
 			// Check and display mesh interfaces
 			var meshInterfaces = ['meshx0', 'meshx1', 'meshx2'];
+			var staInterfaces = ['sta2g', 'sta5g', 'sta6g'];
 			var interfaceStatus = [];
 			
+			// Display mesh backbone interfaces (AP mode with WDS)
 			meshInterfaces.forEach(function(iface) {
 				var ifaceConfig = uci.get('wireless', iface);
 				if (ifaceConfig) {
@@ -105,27 +107,56 @@ return view.extend({
 					var disabled = uci.get('wireless', iface, 'disabled');
 					var status = disabled === '1' ? _('Disabled') : _('Enabled');
 					var bandMap = {'meshx0': '2G', 'meshx1': '5G', 'meshx2': '6G'};
+					var mode = uci.get('wireless', iface, 'mode') || _('Unknown');
 					
 					interfaceStatus.push({
 						name: iface,
 						band: bandMap[iface] || _('Unknown'),
 						device: device,
 						ssid: ssid,
-						status: status
+						status: status,
+						type: 'Mesh Backbone (' + mode + ')',
+						purpose: 'Inter-node communication'
 					});
 				}
 			});
+
+			// For agents, also display STA interfaces (client mode for controller connection)
+			if (current_role === 'agent') {
+				staInterfaces.forEach(function(iface) {
+					var ifaceConfig = uci.get('wireless', iface);
+					if (ifaceConfig) {
+						var device = uci.get('wireless', iface, 'device') || _('Unknown');
+						var ssid = uci.get('wireless', iface, 'ssid') || _('Unknown');
+						var disabled = uci.get('wireless', iface, 'disabled');
+						var status = disabled === '1' ? _('Disabled') : _('Enabled');
+						var bandMap = {'sta2g': '2G', 'sta5g': '5G', 'sta6g': '6G'};
+						var mode = uci.get('wireless', iface, 'mode') || _('Unknown');
+						
+						interfaceStatus.push({
+							name: iface,
+							band: bandMap[iface] || _('Unknown'),
+							device: device,
+							ssid: ssid,
+							status: status,
+							type: 'Controller Link (' + mode + ')',
+							purpose: 'Connect to controller'
+						});
+					}
+				});
+			}
 
 			if (interfaceStatus.length > 0) {
 				o = s.option(form.DummyValue, '_mesh_interfaces', _('Active Mesh Interfaces'));
 				o.rawhtml = true;
 				o.cfgvalue = function() {
 					var html = '<table class="table">';
-					html += '<tr><th>' + _('Interface') + '</th><th>' + _('Band') + '</th><th>' + _('Device') + '</th><th>' + _('SSID') + '</th><th>' + _('Status') + '</th></tr>';
+					html += '<tr><th>' + _('Interface') + '</th><th>' + _('Band') + '</th><th>' + _('Type') + '</th><th>' + _('Device') + '</th><th>' + _('SSID') + '</th><th>' + _('Status') + '</th></tr>';
 					interfaceStatus.forEach(function(iface) {
 						html += '<tr>';
 						html += '<td>' + iface.name + '</td>';
 						html += '<td>' + iface.band + '</td>';
+						html += '<td>' + (iface.type || _('Unknown')) + '</td>';
 						html += '<td>' + iface.device + '</td>';
 						html += '<td>' + iface.ssid + '</td>';
 						html += '<td>' + iface.status + '</td>';
