@@ -192,6 +192,7 @@ config_get role default 'role' 'agent'
 config_get band default 'band' '5g'
 config_get Xid default 'id'
 config_get Xkey default 'key'
+config_get Xencryption default 'encryption' 'sae'
 config_get access_ip default 'access_ip' '10.10.10.1'
 config_get sync_ac default 'sync_ac' '1'
 config_get fronthaul_disabled default 'fronthaul_disabled' '0'
@@ -238,8 +239,12 @@ agent_lost_ac()
 			uci set wireless.wifinet$K.network='lan'
 			uci set wireless.wifinet$K.mode='ap'
 			uci set wireless.wifinet$K.ssid="${ssid}"
-			uci set wireless.wifinet$K.encryption="sae"
-			uci set wireless.wifinet$K.key="${ssid_passwd}"
+			if test -n "${ssid_passwd}" && [ "${Xencryption}" != "none" ]; then
+				uci set wireless.wifinet$K.encryption="${Xencryption}"
+				uci set wireless.wifinet$K.key="${ssid_passwd}"
+			else
+				uci set wireless.wifinet$K.encryption='none'
+			fi
 			uci set wireless.wifinet$K.wpa_group_rekey='601'
 			uci set wireless.wifinet$K.max_inactivity='301'
 			if uci get wireless.${radio}.path | grep -q bcma || iwinfo wlan${radio:6} info | grep -qi Cypress; then
@@ -332,7 +337,7 @@ agent_sync_config()
 		for b in $init_bands; do
 			uci add fakemeshac wifim
 			uci set fakemeshac.@wifim[-1].ssid="${Xid}-${b}"
-			uci set fakemeshac.@wifim[-1].encryption="sae"
+			uci set fakemeshac.@wifim[-1].encryption="$Xencryption"
 			uci set fakemeshac.@wifim[-1].key="$Xkey"
 			uci set fakemeshac.@wifim[-1].band="$b"
 			uci set fakemeshac.@wifim[-1].enabled="1"
@@ -426,12 +431,12 @@ agent_sync_config()
 		newcfgmd5=$(uci show fakemeshac | grep "^fakemeshac.@wifim" | md5sum | head -c 32)
 		[ "${oldcfgmd5}" = "${newcfgmd5}" ] || {
 			logger -t fakemesh "agent_sync_config($pid): config change!"
-			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* --- #
+			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* Y sta* --- #
 			I=0
 			while uci get wireless.@wifi-iface[$I] &>/dev/null; do
-				# Check if this interface is a mesh interface (meshx0, meshx1, or meshx2)
-				if uci show wireless.@wifi-iface[$I] | grep -q 'ifname.*meshx[012]'; then
-					logger -t fakemesh "agent_sync_config($pid): preserving mesh interface $I ($(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null))"
+				# Check if this interface is a mesh interface (meshx0, meshx1, meshx2) or STA interface (sta2g, sta5g, sta6g)
+				if uci show wireless.@wifi-iface[$I] | grep -q 'ifname.*\(meshx[012]\|sta[2-6g]*\)'; then
+					logger -t fakemesh "agent_sync_config($pid): preserving interface $I ($(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null))"
 					I=$((I+1))
 					continue
 				fi
@@ -538,13 +543,13 @@ agent_keep_alive()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g) primary_band="2g"; sta_iface="sta2g" ;;
+	  2g5g)   primary_band="2g"; sta_iface="sta2g" ;;
+	  5g6g)   primary_band="5g"; sta_iface="sta5g" ;;
+	  6g)     primary_band="6g"; sta_iface="sta6g" ;;
+	  5g)     primary_band="5g"; sta_iface="sta5g" ;;
+	  2g)     primary_band="2g"; sta_iface="sta2g" ;;
+	  *)      primary_band="$band"; sta_iface="sta_${band}" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -594,13 +599,13 @@ agent_fix_channel()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g) primary_band="2g"; sta_iface="sta2g" ;;
+	  2g5g)   primary_band="2g"; sta_iface="sta2g" ;;
+	  5g6g)   primary_band="5g"; sta_iface="sta5g" ;;
+	  6g)     primary_band="6g"; sta_iface="sta6g" ;;
+	  5g)     primary_band="5g"; sta_iface="sta5g" ;;
+	  2g)     primary_band="2g"; sta_iface="sta2g" ;;
+	  *)      primary_band="$band"; sta_iface="sta_${band}" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -785,8 +790,8 @@ if [ "$role" = "controller" ]; then
 			uci set wireless.$mesh_iface.hidden='0'
 			uci set wireless.$mesh_iface.wpa_group_rekey='601'
 			uci set wireless.$mesh_iface.max_inactivity='301'
-			if test -n "${Xkey}"; then
-				uci set wireless.$mesh_iface.encryption='sae'
+			if test -n "${Xkey}" && [ "${Xencryption}" != "none" ]; then
+				uci set wireless.$mesh_iface.encryption="${Xencryption}"
 				uci set wireless.$mesh_iface.key="${Xkey}"
 			else
 				uci set wireless.$mesh_iface.encryption='none'
@@ -876,7 +881,7 @@ fi
 	# Create wifim sections only for selected bands
 	for b in $bands; do
 		ssid="${Xid}-${b}"
-		encryption="sae"
+		encryption="$Xencryption"
 		
 		uci add fakemeshac wifim
 		uci set fakemeshac.@wifim[-1].ssid="$ssid"
@@ -981,8 +986,8 @@ else
 			uci set wireless.$mesh_iface.hidden='0'
 			uci set wireless.$mesh_iface.wpa_group_rekey='601'
 			uci set wireless.$mesh_iface.max_inactivity='301'
-			if test -n "${Xkey}"; then
-				uci set wireless.$mesh_iface.encryption='sae'
+			if test -n "${Xkey}" && [ "${Xencryption}" != "none" ]; then
+				uci set wireless.$mesh_iface.encryption="${Xencryption}"
 				uci set wireless.$mesh_iface.key="${Xkey}"
 			else
 				uci set wireless.$mesh_iface.encryption='none'
@@ -1010,12 +1015,12 @@ else
 
 	# Create STA interface for primary band connection to controller
 	case "$band" in
-	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g) primary_band="5g"; sta_iface="meshx1" ;;
-	  6g) primary_band="6g"; sta_iface="meshx2" ;;
-	  5g) primary_band="5g"; sta_iface="meshx1" ;;
-	  2g) primary_band="2g"; sta_iface="meshx1" ;;
-	  *) primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="sta2g" ;;
+	  5g6g) primary_band="5g"; sta_iface="sta5g" ;;
+	  6g) primary_band="6g"; sta_iface="sta6g" ;;
+	  5g) primary_band="5g"; sta_iface="sta5g" ;;
+	  2g) primary_band="2g"; sta_iface="sta2g" ;;
+	  *) primary_band="$band"; sta_iface="sta_${band}" ;;
 	esac
 	
 	primary_radio=$(get_radio_for_band "${primary_band}")
@@ -1030,8 +1035,8 @@ else
 		uci set wireless.$sta_iface.mode='sta'
 		uci set wireless.$sta_iface.wds='1'
 		uci set wireless.$sta_iface.ssid="${Xid}"
-		if test -n "${Xkey}"; then
-			uci set wireless.$sta_iface.encryption='sae'
+		if test -n "${Xkey}" && [ "${Xencryption}" != "none" ]; then
+			uci set wireless.$sta_iface.encryption="${Xencryption}"
 			uci set wireless.$sta_iface.key="${Xkey}"
 		else
 			uci set wireless.$sta_iface.encryption='none'

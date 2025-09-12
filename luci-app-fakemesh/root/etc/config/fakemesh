@@ -2,6 +2,7 @@ config fakemesh 'default'
 	option enabled '0'
 	option id 'mesh-brudalevante'
 	option key '12345678'
+	option encryption 'sae'
 	option band '6g'
 	option role 'controller' # agent/controller
 	option band_steer_helper 'usteer' # usteer/dawn/none
