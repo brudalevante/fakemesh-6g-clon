@@ -126,13 +126,28 @@ test $enabled -eq 0 && {
 	uci delete wireless.meshx0 &>/dev/null
 	uci delete wireless.meshx1 &>/dev/null
 	uci delete wireless.meshx2 &>/dev/null
+	uci delete wireless.meshx0_sta &>/dev/null
+	uci delete wireless.meshx1_sta &>/dev/null
+	uci delete wireless.meshx2_sta &>/dev/null
 
 	I=0
 	while uci get wireless.@wifi-iface[$I] &>/dev/null; do
+		# Reset network assignments for mesh interfaces back to lan
 		echo "$(uci get wireless.@wifi-iface[$I].network)" | grep -q "^meshx" && {
 			uci set wireless.@wifi-iface[$I].network="lan"
 		}
+		# Also clean up any wifinetX interfaces  
+		ifname="$(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null)"
+		if echo "$ifname" | grep -q "^wifinet[0-9]" || echo "$(uci get wireless.@wifi-iface[$I] 2>/dev/null)" | grep -q "wifinet[0-9]"; then
+			uci delete wireless.@wifi-iface[$I] 2>/dev/null
+			continue
+		fi
 		I=$((I+1))
+	done
+
+	# Clean up any remaining wifinetX named sections
+	for i in $(seq 0 10); do
+		uci delete wireless.wifinet$i &>/dev/null
 	done
 
 	uci delete fakemesh.default.wifim_md5 &>/dev/null
@@ -270,7 +285,7 @@ agent_lost_ac()
 
 	#drop all in-comming DHCP request from eth port
 	for brif in $(cd /sys/class/net/br-lan/brif/ && ls); do
-		iwinfo $brif info &>/dev/null && [ "$brif" != "meshx0" ] && [ "$brif" != "meshx1" ] && [ "$brif" != "meshx2" ] && continue
+		iwinfo $brif info &>/dev/null && [ "$brif" != "meshx0" ] && [ "$brif" != "meshx1" ] && [ "$brif" != "meshx2" ] && [ "$brif" != "meshx0_sta" ] && [ "$brif" != "meshx1_sta" ] && [ "$brif" != "meshx2_sta" ] && continue
 		nft_add_brmeshfilters $brif
 	done
 
@@ -288,7 +303,7 @@ agent_lost_ac()
 	#drop all in-comming DHCP request from eth port
 	#XXX: since network reload, netdevice may unregister and re-create, it is safe to re-add filter rules again.
 	for brif in $(cd /sys/class/net/br-lan/brif/ && ls); do
-		iwinfo $brif info &>/dev/null && [ "$brif" != "meshx0" ] && [ "$brif" != "meshx1" ]  && [ "$brif" != "meshx2" ] && continue
+		iwinfo $brif info &>/dev/null && [ "$brif" != "meshx0" ] && [ "$brif" != "meshx1" ]  && [ "$brif" != "meshx2" ] && [ "$brif" != "meshx0_sta" ] && [ "$brif" != "meshx1_sta" ] && [ "$brif" != "meshx2_sta" ] && continue
 		nft_add_brmeshfilters $brif
 	done
 
@@ -426,16 +441,19 @@ agent_sync_config()
 		newcfgmd5=$(uci show fakemeshac | grep "^fakemeshac.@wifim" | md5sum | head -c 32)
 		[ "${oldcfgmd5}" = "${newcfgmd5}" ] || {
 			logger -t fakemesh "agent_sync_config($pid): config change!"
-			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* --- #
+			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* Y STA --- #
 			I=0
 			while uci get wireless.@wifi-iface[$I] &>/dev/null; do
-				# Check if this interface is a mesh interface (meshx0, meshx1, or meshx2)
-				if uci show wireless.@wifi-iface[$I] | grep -q 'ifname.*meshx[012]'; then
-					logger -t fakemesh "agent_sync_config($pid): preserving mesh interface $I ($(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null))"
+				# Check if this interface is a mesh interface or STA interface to preserve
+				ifname="$(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null)"
+				section_name="$(uci show wireless.@wifi-iface[$I] | head -1 | cut -d. -f2 | cut -d= -f1)"
+				
+				if echo "$ifname" | grep -q '^meshx[012]$' || echo "$ifname" | grep -q '^meshx[012]_sta$' || echo "$section_name" | grep -q '^meshx[012]$' || echo "$section_name" | grep -q '^meshx[012]_sta$'; then
+					logger -t fakemesh "agent_sync_config($pid): preserving mesh/sta interface $I ($section_name/$ifname)"
 					I=$((I+1))
 					continue
 				fi
-				logger -t fakemesh "agent_sync_config($pid): removing non-mesh interface $I"
+				logger -t fakemesh "agent_sync_config($pid): removing non-mesh interface $I ($section_name/$ifname)"
 				uci delete wireless.@wifi-iface[$I] &>/dev/null
 			done
 
@@ -538,13 +556,13 @@ agent_keep_alive()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g) primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  2g5g)   primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  5g6g)   primary_band="5g"; sta_iface="meshx1_sta" ;;
+	  6g)     primary_band="6g"; sta_iface="meshx2_sta" ;;
+	  5g)     primary_band="5g"; sta_iface="meshx1_sta" ;;
+	  2g)     primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  *)      primary_band="$band"; sta_iface="meshx0_sta" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -594,13 +612,13 @@ agent_fix_channel()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g) primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  2g5g)   primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  5g6g)   primary_band="5g"; sta_iface="meshx1_sta" ;;
+	  6g)     primary_band="6g"; sta_iface="meshx2_sta" ;;
+	  5g)     primary_band="5g"; sta_iface="meshx1_sta" ;;
+	  2g)     primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  *)      primary_band="$band"; sta_iface="meshx0_sta" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -1009,13 +1027,14 @@ else
 	done
 
 	# Create STA interface for primary band connection to controller
+	# Use different interface name to avoid conflicts with AP mesh interfaces
 	case "$band" in
-	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g) primary_band="5g"; sta_iface="meshx1" ;;
-	  6g) primary_band="6g"; sta_iface="meshx2" ;;
-	  5g) primary_band="5g"; sta_iface="meshx1" ;;
-	  2g) primary_band="2g"; sta_iface="meshx1" ;;
-	  *) primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  5g6g) primary_band="5g"; sta_iface="meshx1_sta" ;;
+	  6g) primary_band="6g"; sta_iface="meshx2_sta" ;;
+	  5g) primary_band="5g"; sta_iface="meshx1_sta" ;;
+	  2g) primary_band="2g"; sta_iface="meshx0_sta" ;;
+	  *) primary_band="$band"; sta_iface="meshx0_sta" ;;
 	esac
 	
 	primary_radio=$(get_radio_for_band "${primary_band}")
@@ -1042,6 +1061,58 @@ else
 			uci delete wireless.$sta_iface.disabled 2>/dev/null
 		fi
 	fi
+
+	# Create initial wifinetX interfaces for repeater functionality in agent mode
+	# These will be used for the networks that this agent will repeat
+	# Initially create placeholder interfaces that can be configured via sync
+	K=0
+	for b in $bands; do
+		radio=$(get_radio_for_band "$b")
+		if test -n "$radio"; then
+			logger -t fakemesh "agent: creating wifinet$K interface for band $b on radio $radio"
+			
+			uci set wireless.wifinet$K=wifi-iface
+			uci set wireless.wifinet$K.device="${radio}"
+			uci set wireless.wifinet$K.network='meshx0'
+			uci set wireless.wifinet$K.mode='ap'
+			uci set wireless.wifinet$K.ssid="${Xid}-${b}"
+			uci set wireless.wifinet$K.wpa_group_rekey='601'
+			uci set wireless.wifinet$K.max_inactivity='301'
+			
+			# Set encryption based on mesh key
+			if test -n "${Xkey}"; then
+				uci set wireless.wifinet$K.encryption='sae'
+				uci set wireless.wifinet$K.key="${Xkey}"
+			else
+				uci set wireless.wifinet$K.encryption='none'
+			fi
+			
+			# Configure advanced 802.11 features if supported
+			if uci get wireless.${radio}.path | grep -q bcma || iwinfo wlan${radio:5} info | grep -qi Cypress; then
+				WLAN_IDX=${radio:5}
+				uci set wireless.wifinet$K.ifname="wlan${WLAN_IDX}"
+			else
+				uci set wireless.wifinet$K.ieee80211r='1'
+				uci set wireless.wifinet$K.ft_over_ds='1'
+				uci set wireless.wifinet$K.ft_psk_generate_local='1'
+			fi
+			
+			# Add additional 802.11k/v features if not using basic wpad
+			if opkg list-installed 2>/dev/null | grep -q wpad-basic || apk list 2>/dev/null | grep wpad-basic | grep -q installed; then
+				:
+			else
+				uci set wireless.wifinet$K.bss_transition='1'
+				uci set wireless.wifinet$K.wnm_sleep_mode='1'
+				uci set wireless.wifinet$K.time_advertisement='2'
+				uci set wireless.wifinet$K.time_zone='GMT0'
+				uci set wireless.wifinet$K.ieee80211k='1'
+				uci set wireless.wifinet$K.rrm_neighbor_report='1'
+				uci set wireless.wifinet$K.rrm_beacon_report='1'
+			fi
+			
+			K=$((K+1))
+		fi
+	done
 
 	uci set dhcp.meshx0=dhcp
 	uci set dhcp.meshx0.ignore='1'
