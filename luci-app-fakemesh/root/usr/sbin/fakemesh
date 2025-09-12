@@ -126,6 +126,11 @@ test $enabled -eq 0 && {
 	uci delete wireless.meshx0 &>/dev/null
 	uci delete wireless.meshx1 &>/dev/null
 	uci delete wireless.meshx2 &>/dev/null
+	
+	# Also clean up STA interfaces
+	uci delete wireless.sta_meshx0 &>/dev/null
+	uci delete wireless.sta_meshx1 &>/dev/null
+	uci delete wireless.sta_meshx2 &>/dev/null
 
 	I=0
 	while uci get wireless.@wifi-iface[$I] &>/dev/null; do
