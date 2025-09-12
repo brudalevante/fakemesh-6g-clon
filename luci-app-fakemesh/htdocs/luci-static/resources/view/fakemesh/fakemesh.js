@@ -40,6 +40,19 @@ return view.extend({
 		o.password = true;
 		o.datatype = 'wpakey';
 
+		o = s.option(form.ListValue, 'encryption', _('Encryption'));
+		o.value('none', _('No Encryption'));
+		o.value('psk', _('WPA-PSK'));
+		o.value('psk2', _('WPA2-PSK'));
+		o.value('psk-mixed', _('WPA-PSK/WPA2-PSK Mixed Mode'));
+		o.value('sae', _('WPA3-SAE'));
+		o.value('sae-mixed', _('WPA2-PSK/WPA3-SAE Mixed Mode'));
+		o.value('wpa', _('WPA-EAP (medium security)'));
+		o.value('wpa2', _('WPA2-EAP (strong security)'));
+		o.value('wpa3', _('WPA3-EAP (strong security)'));
+		o.value('owe', _('OWE (open network)'));
+		o.default = 'sae';
+
 		o = s.option(form.ListValue, 'band', _('Band'));
 		o.value('2g5g6g', _('2G+5G+6G'));
 		o.value('5g6g', _('5G+6G'));
