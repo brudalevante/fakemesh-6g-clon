@@ -407,10 +407,13 @@ agent_sync_config()
 			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* --- #
 			I=0
 			while uci get wireless.@wifi-iface[$I] &>/dev/null; do
-				if uci show wireless.@wifi-iface[$I] | grep -q wireless.meshx[012]=wifi-iface; then
+				# Check if this interface is a mesh interface (meshx0, meshx1, or meshx2)
+				if uci show wireless.@wifi-iface[$I] | grep -q 'ifname.*meshx[012]'; then
+					logger -t fakemesh "agent_sync_config($pid): preserving mesh interface $I ($(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null))"
 					I=$((I+1))
 					continue
 				fi
+				logger -t fakemesh "agent_sync_config($pid): removing non-mesh interface $I"
 				uci delete wireless.@wifi-iface[$I] &>/dev/null
 			done
 
@@ -937,31 +940,33 @@ else
 				*) mesh_iface="meshx0" ;;  # fallback for unknown bands
 			esac
 			
-			# Only create meshx2 interface for 6G band
+			logger -t fakemesh "agent: creating mesh interface $mesh_iface for band $b on radio $radio"
+			
+			# Create mesh interface for all bands (including 6G)
+			uci set wireless.$mesh_iface=wifi-iface
+			uci set wireless.$mesh_iface.device="${radio}"
+			uci set wireless.$mesh_iface.network='meshx0'
+			uci set wireless.$mesh_iface.ifname="$mesh_iface"
+			uci set wireless.$mesh_iface.mode='ap'
+			uci set wireless.$mesh_iface.wds='1'
+			uci set wireless.$mesh_iface.ssid="${Xid}"
+			uci set wireless.$mesh_iface.hidden='0'
+			uci set wireless.$mesh_iface.wpa_group_rekey='601'
+			uci set wireless.$mesh_iface.max_inactivity='301'
+			if test -n "${Xkey}"; then
+				uci set wireless.$mesh_iface.encryption='sae'
+				uci set wireless.$mesh_iface.key="${Xkey}"
+			else
+				uci set wireless.$mesh_iface.encryption='none'
+			fi
+			if [ "$fronthaul_disabled" = "1" ]; then
+				uci set wireless.$mesh_iface.disabled='1'
+			else
+				uci delete wireless.$mesh_iface.disabled 2>/dev/null
+			fi
+			
+			# Configure 6G specific settings
 			if [ "$b" = "6g" ]; then
-				uci set wireless.$mesh_iface=wifi-iface
-				uci set wireless.$mesh_iface.device="${radio}"
-				uci set wireless.$mesh_iface.network='meshx0'
-				uci set wireless.$mesh_iface.ifname="$mesh_iface"
-				uci set wireless.$mesh_iface.mode='ap'
-				uci set wireless.$mesh_iface.wds='1'
-				uci set wireless.$mesh_iface.ssid="${Xid}"
-				uci set wireless.$mesh_iface.hidden='0'
-				uci set wireless.$mesh_iface.wpa_group_rekey='601'
-				uci set wireless.$mesh_iface.max_inactivity='301'
-				if test -n "${Xkey}"; then
-					uci set wireless.$mesh_iface.encryption='sae'
-					uci set wireless.$mesh_iface.key="${Xkey}"
-				else
-					uci set wireless.$mesh_iface.encryption='none'
-				fi
-				if [ "$fronthaul_disabled" = "1" ]; then
-					uci set wireless.$mesh_iface.disabled='1'
-				else
-					uci delete wireless.$mesh_iface.disabled 2>/dev/null
-				fi
-				
-				# Configure 6G specific settings
 				channel=$(uci get wireless.${radio}.channel 2>/dev/null || echo auto)
 				if [ "$channel" = "auto" ] || [ -z "$channel" ]; then
 					uci set wireless.${radio}.channel='37'
