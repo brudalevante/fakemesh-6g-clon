@@ -93,8 +93,8 @@ return view.extend({
 			s.addremove = false;
 			s.anonymous = true;
 
-			// Check and display mesh interfaces
-			var meshInterfaces = ['meshx0', 'meshx1', 'meshx2'];
+			// Check and display mesh interfaces (both AP and STA)
+			var meshInterfaces = ['meshx0', 'meshx1', 'meshx2', 'meshx0_sta', 'meshx1_sta', 'meshx2_sta'];
 			var interfaceStatus = [];
 			
 			meshInterfaces.forEach(function(iface) {
@@ -103,31 +103,66 @@ return view.extend({
 					var device = uci.get('wireless', iface, 'device') || _('Unknown');
 					var ssid = uci.get('wireless', iface, 'ssid') || _('Unknown');
 					var disabled = uci.get('wireless', iface, 'disabled');
+					var mode = uci.get('wireless', iface, 'mode') || _('Unknown');
+					var encryption = uci.get('wireless', iface, 'encryption') || _('None');
 					var status = disabled === '1' ? _('Disabled') : _('Enabled');
-					var bandMap = {'meshx0': '2G', 'meshx1': '5G', 'meshx2': '6G'};
+					var bandMap = {
+						'meshx0': '2G', 'meshx1': '5G', 'meshx2': '6G',
+						'meshx0_sta': '2G', 'meshx1_sta': '5G', 'meshx2_sta': '6G'
+					};
+					var modeText = mode === 'ap' ? _('AP') : mode === 'sta' ? _('STA') : mode;
 					
 					interfaceStatus.push({
 						name: iface,
 						band: bandMap[iface] || _('Unknown'),
 						device: device,
 						ssid: ssid,
+						mode: modeText,
+						encryption: encryption,
 						status: status
 					});
 				}
 			});
+
+			// Also check for wifinetX interfaces
+			for (var i = 0; i < 10; i++) {
+				var wifinetIface = 'wifinet' + i;
+				var ifaceConfig = uci.get('wireless', wifinetIface);
+				if (ifaceConfig) {
+					var device = uci.get('wireless', wifinetIface, 'device') || _('Unknown');
+					var ssid = uci.get('wireless', wifinetIface, 'ssid') || _('Unknown');
+					var disabled = uci.get('wireless', wifinetIface, 'disabled');
+					var mode = uci.get('wireless', wifinetIface, 'mode') || _('Unknown');
+					var encryption = uci.get('wireless', wifinetIface, 'encryption') || _('None');
+					var status = disabled === '1' ? _('Disabled') : _('Enabled');
+					var modeText = mode === 'ap' ? _('AP') : mode === 'sta' ? _('STA') : mode;
+					
+					interfaceStatus.push({
+						name: wifinetIface,
+						band: _('Client Net'),
+						device: device,
+						ssid: ssid,
+						mode: modeText,
+						encryption: encryption,
+						status: status
+					});
+				}
+			}
 
 			if (interfaceStatus.length > 0) {
 				o = s.option(form.DummyValue, '_mesh_interfaces', _('Active Mesh Interfaces'));
 				o.rawhtml = true;
 				o.cfgvalue = function() {
 					var html = '<table class="table">';
-					html += '<tr><th>' + _('Interface') + '</th><th>' + _('Band') + '</th><th>' + _('Device') + '</th><th>' + _('SSID') + '</th><th>' + _('Status') + '</th></tr>';
+					html += '<tr><th>' + _('Interface') + '</th><th>' + _('Band') + '</th><th>' + _('Mode') + '</th><th>' + _('Device') + '</th><th>' + _('SSID') + '</th><th>' + _('Encryption') + '</th><th>' + _('Status') + '</th></tr>';
 					interfaceStatus.forEach(function(iface) {
 						html += '<tr>';
 						html += '<td>' + iface.name + '</td>';
 						html += '<td>' + iface.band + '</td>';
+						html += '<td>' + iface.mode + '</td>';
 						html += '<td>' + iface.device + '</td>';
 						html += '<td>' + iface.ssid + '</td>';
+						html += '<td>' + iface.encryption + '</td>';
 						html += '<td>' + iface.status + '</td>';
 						html += '</tr>';
 					});
