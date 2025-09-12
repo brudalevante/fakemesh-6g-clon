@@ -126,6 +126,11 @@ test $enabled -eq 0 && {
 	uci delete wireless.meshx0 &>/dev/null
 	uci delete wireless.meshx1 &>/dev/null
 	uci delete wireless.meshx2 &>/dev/null
+	
+	# Also clean up STA interfaces
+	uci delete wireless.sta_meshx0 &>/dev/null
+	uci delete wireless.sta_meshx1 &>/dev/null
+	uci delete wireless.sta_meshx2 &>/dev/null
 
 	I=0
 	while uci get wireless.@wifi-iface[$I] &>/dev/null; do
@@ -238,7 +243,7 @@ agent_lost_ac()
 			uci set wireless.wifinet$K.network='lan'
 			uci set wireless.wifinet$K.mode='ap'
 			uci set wireless.wifinet$K.ssid="${ssid}"
-			uci set wireless.wifinet$K.encryption="sae"
+			uci set wireless.wifinet$K.encryption="sae-mixed"
 			uci set wireless.wifinet$K.key="${ssid_passwd}"
 			uci set wireless.wifinet$K.wpa_group_rekey='601'
 			uci set wireless.wifinet$K.max_inactivity='301'
@@ -332,7 +337,8 @@ agent_sync_config()
 		for b in $init_bands; do
 			uci add fakemeshac wifim
 			uci set fakemeshac.@wifim[-1].ssid="${Xid}-${b}"
-			uci set fakemeshac.@wifim[-1].encryption="sae"
+			# Use mixed mode for better compatibility
+			uci set fakemeshac.@wifim[-1].encryption="sae-mixed"
 			uci set fakemeshac.@wifim[-1].key="$Xkey"
 			uci set fakemeshac.@wifim[-1].band="$b"
 			uci set fakemeshac.@wifim[-1].enabled="1"
@@ -426,17 +432,26 @@ agent_sync_config()
 		newcfgmd5=$(uci show fakemeshac | grep "^fakemeshac.@wifim" | md5sum | head -c 32)
 		[ "${oldcfgmd5}" = "${newcfgmd5}" ] || {
 			logger -t fakemesh "agent_sync_config($pid): config change!"
-			# --- CORRECCIÓN --- PRESERVAR TODAS LAS INTERFACES meshx* --- #
+			# --- CORRECCIÓN MEJORADA --- PRESERVAR INTERFACES meshx* Y LIMPIAR SOLO wifinetX --- #
 			I=0
 			while uci get wireless.@wifi-iface[$I] &>/dev/null; do
-				# Check if this interface is a mesh interface (meshx0, meshx1, or meshx2)
-				if uci show wireless.@wifi-iface[$I] | grep -q 'ifname.*meshx[012]'; then
-					logger -t fakemesh "agent_sync_config($pid): preserving mesh interface $I ($(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null))"
+				ifname=$(uci get wireless.@wifi-iface[$I].ifname 2>/dev/null)
+				# Preserve mesh interfaces (meshx0, meshx1, meshx2) - these are for backhaul
+				if echo "$ifname" | grep -q '^meshx[012]$'; then
+					logger -t fakemesh "agent_sync_config($pid): preserving mesh interface $I ($ifname)"
 					I=$((I+1))
 					continue
 				fi
-				logger -t fakemesh "agent_sync_config($pid): removing non-mesh interface $I"
-				uci delete wireless.@wifi-iface[$I] &>/dev/null
+				# Remove wifinetX interfaces (frontend networks) to recreate them
+				if echo "$ifname" | grep -q '^wlan[0-9]' || uci show wireless.@wifi-iface[$I] | grep -q '^wireless\.@wifi-iface\[[0-9]*\]\.device='; then
+					# Only remove if it's a frontend interface, not a mesh interface
+					if ! echo "$ifname" | grep -q '^meshx[012]$'; then
+						logger -t fakemesh "agent_sync_config($pid): removing frontend interface $I ($ifname)"
+						uci delete wireless.@wifi-iface[$I] &>/dev/null
+						continue
+					fi
+				fi
+				I=$((I+1))
 			done
 
 			J=0
@@ -449,7 +464,13 @@ agent_sync_config()
 				bands=$(uci get fakemeshac.@wifim[$J].band)
 				enabled=$(uci get fakemeshac.@wifim[$J].enabled || echo 1)
 
-				[ "$bands" = "2g5g6g" ] && bands="2g 5g 6g"
+				# Support for multiple bands
+				case "$bands" in
+					"2g5g6g") bands="2g 5g 6g" ;;
+					"2g5g")   bands="2g 5g" ;;
+					"5g6g")   bands="5g 6g" ;;
+					*)        bands="$bands" ;;
+				esac
 				
 				[ "$enabled" = "1" ] && {
 					for band in $bands; do
@@ -466,12 +487,30 @@ agent_sync_config()
 							uci set wireless.wifinet$K.ssid="${ssid}"
 							uci set wireless.wifinet$K.wpa_group_rekey='601'
 							uci set wireless.wifinet$K.max_inactivity='301'
+							
+							# --- CORREGIDO: SOPORTE COMPLETO DE CIFRADO ---
 							if [ "${encryption}" != "none" ]; then
-								uci set wireless.wifinet$K.encryption="${encryption}"
+								# Support mixed mode encryption for better compatibility
+								case "${encryption}" in
+									"sae-mixed"|"psk2+sae")
+										uci set wireless.wifinet$K.encryption='sae-mixed'
+										;;
+									"psk2")
+										uci set wireless.wifinet$K.encryption='psk2'
+										;;
+									"sae")
+										uci set wireless.wifinet$K.encryption='sae'
+										;;
+									*)
+										uci set wireless.wifinet$K.encryption="${encryption}"
+										;;
+								esac
 								uci set wireless.wifinet$K.key="${key}"
 							else
 								uci set wireless.wifinet$K.encryption='none'
+								uci delete wireless.wifinet$K.key 2>/dev/null
 							fi
+							
 							if uci get wireless.${radio}.path | grep -q bcma || iwinfo wlan${radio:5} info | grep -qi Cypress; then
 								WLAN_IDX=${radio:5}
 								uci set wireless.wifinet$K.ifname="wlan${WLAN_IDX}"
@@ -538,13 +577,13 @@ agent_keep_alive()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g) primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  2g5g)   primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  5g6g)   primary_band="5g"; sta_iface="sta_meshx1" ;;
+	  6g)     primary_band="6g"; sta_iface="sta_meshx2" ;;
+	  5g)     primary_band="5g"; sta_iface="sta_meshx1" ;;
+	  2g)     primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  *)      primary_band="$band"; sta_iface="sta_meshx0" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -594,13 +633,13 @@ agent_fix_channel()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g) primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  2g5g)   primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  5g6g)   primary_band="5g"; sta_iface="sta_meshx1" ;;
+	  6g)     primary_band="6g"; sta_iface="sta_meshx2" ;;
+	  5g)     primary_band="5g"; sta_iface="sta_meshx1" ;;
+	  2g)     primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  *)      primary_band="$band"; sta_iface="sta_meshx0" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -786,15 +825,18 @@ if [ "$role" = "controller" ]; then
 			uci set wireless.$mesh_iface.wpa_group_rekey='601'
 			uci set wireless.$mesh_iface.max_inactivity='301'
 			if test -n "${Xkey}"; then
-				uci set wireless.$mesh_iface.encryption='sae'
+				# Use mixed mode for better compatibility
+				uci set wireless.$mesh_iface.encryption='sae-mixed'
 				uci set wireless.$mesh_iface.key="${Xkey}"
 			else
 				uci set wireless.$mesh_iface.encryption='none'
+				uci delete wireless.$mesh_iface.key 2>/dev/null
 			fi
 			if [ "$fronthaul_disabled" = "1" ]; then
 				uci set wireless.$mesh_iface.disabled='1'
 			else
 				uci delete wireless.$mesh_iface.disabled 2>/dev/null
+			fi
 			fi
 			
 # Configure 6G specific settings for meshx2
@@ -824,7 +866,6 @@ if [ "$b" = "6g" ] && [ "$mesh_iface" = "meshx2" ]; then
         fi
     fi
 fi
-		fi
 	done
 	# --- FIN BLOQUE NUEVO ---
 
@@ -876,12 +917,19 @@ fi
 	# Create wifim sections only for selected bands
 	for b in $bands; do
 		ssid="${Xid}-${b}"
-		encryption="sae"
+		# Use mixed mode encryption for better compatibility
+		if test -n "${Xkey}"; then
+			encryption="sae-mixed"
+		else
+			encryption="none"
+		fi
 		
 		uci add fakemeshac wifim
 		uci set fakemeshac.@wifim[-1].ssid="$ssid"
 		uci set fakemeshac.@wifim[-1].encryption="$encryption"
-		uci set fakemeshac.@wifim[-1].key="$Xkey"
+		if test -n "${Xkey}"; then
+			uci set fakemeshac.@wifim[-1].key="$Xkey"
+		fi
 		uci set fakemeshac.@wifim[-1].band="$b"
 		uci set fakemeshac.@wifim[-1].enabled="1"
 	done
@@ -982,10 +1030,12 @@ else
 			uci set wireless.$mesh_iface.wpa_group_rekey='601'
 			uci set wireless.$mesh_iface.max_inactivity='301'
 			if test -n "${Xkey}"; then
-				uci set wireless.$mesh_iface.encryption='sae'
+				# Use mixed mode for better compatibility
+				uci set wireless.$mesh_iface.encryption='sae-mixed'
 				uci set wireless.$mesh_iface.key="${Xkey}"
 			else
 				uci set wireless.$mesh_iface.encryption='none'
+				uci delete wireless.$mesh_iface.key 2>/dev/null
 			fi
 			if [ "$fronthaul_disabled" = "1" ]; then
 				uci set wireless.$mesh_iface.disabled='1'
@@ -1008,14 +1058,14 @@ else
 		fi
 	done
 
-	# Create STA interface for primary band connection to controller
+	# Create STA interface for primary band connection to controller (use different names)
 	case "$band" in
-	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g) primary_band="5g"; sta_iface="meshx1" ;;
-	  6g) primary_band="6g"; sta_iface="meshx2" ;;
-	  5g) primary_band="5g"; sta_iface="meshx1" ;;
-	  2g) primary_band="2g"; sta_iface="meshx1" ;;
-	  *) primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  5g6g) primary_band="5g"; sta_iface="sta_meshx1" ;;
+	  6g) primary_band="6g"; sta_iface="sta_meshx2" ;;
+	  5g) primary_band="5g"; sta_iface="sta_meshx1" ;;
+	  2g) primary_band="2g"; sta_iface="sta_meshx0" ;;
+	  *) primary_band="$band"; sta_iface="sta_meshx0" ;;
 	esac
 	
 	primary_radio=$(get_radio_for_band "${primary_band}")
@@ -1031,10 +1081,12 @@ else
 		uci set wireless.$sta_iface.wds='1'
 		uci set wireless.$sta_iface.ssid="${Xid}"
 		if test -n "${Xkey}"; then
-			uci set wireless.$sta_iface.encryption='sae'
+			# Use mixed mode for better compatibility
+			uci set wireless.$sta_iface.encryption='sae-mixed'
 			uci set wireless.$sta_iface.key="${Xkey}"
 		else
 			uci set wireless.$sta_iface.encryption='none'
+			uci delete wireless.$sta_iface.key 2>/dev/null
 		fi
 		if [ "$role" = "wap" ]; then
 			uci set wireless.$sta_iface.disabled='1'
