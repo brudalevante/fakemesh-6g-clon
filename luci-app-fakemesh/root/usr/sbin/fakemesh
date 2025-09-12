@@ -457,11 +457,9 @@ agent_sync_config()
 						if test -n "$radio"; then
 							uci set wireless.wifinet$K=wifi-iface
 							uci set wireless.wifinet$K.device="${radio}"
-							if [ "$role" = "controller" ]; then
-								uci set wireless.wifinet$K.network='lan'
-							else
-								uci set wireless.wifinet$K.network='meshx0'
-							fi
+							# Both controller and agent need client-facing AP interfaces on 'lan' network
+							# to serve clients with the same SSIDs and encryption
+							uci set wireless.wifinet$K.network='lan'
 							uci set wireless.wifinet$K.mode='ap'
 							uci set wireless.wifinet$K.ssid="${ssid}"
 							uci set wireless.wifinet$K.wpa_group_rekey='601'
@@ -538,13 +536,12 @@ agent_keep_alive()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="sta2g" ;;
+	  5g6g) primary_band="5g"; sta_iface="sta5g" ;;
+	  6g) primary_band="6g"; sta_iface="sta6g" ;;
+	  5g) primary_band="5g"; sta_iface="sta5g" ;;
+	  2g) primary_band="2g"; sta_iface="sta2g" ;;
+	  *) primary_band="$band"; sta_iface="sta${band}" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -594,13 +591,12 @@ agent_fix_channel()
 
 	# Parse band to get primary band and STA interface for monitoring
 	case "$band" in
-	  2g5g6g) primary_band="2g"; sta_iface="meshx1" ;;
-	  2g5g)   primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g)   primary_band="5g"; sta_iface="meshx1" ;;
-	  6g)     primary_band="6g"; sta_iface="meshx2" ;;
-	  5g)     primary_band="5g"; sta_iface="meshx1" ;;
-	  2g)     primary_band="2g"; sta_iface="meshx1" ;;
-	  *)      primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="sta2g" ;;
+	  5g6g) primary_band="5g"; sta_iface="sta5g" ;;
+	  6g) primary_band="6g"; sta_iface="sta6g" ;;
+	  5g) primary_band="5g"; sta_iface="sta5g" ;;
+	  2g) primary_band="2g"; sta_iface="sta2g" ;;
+	  *) primary_band="$band"; sta_iface="sta${band}" ;;
 	esac
 
 	radio=$(get_radio_for_band "${primary_band}")
@@ -1009,13 +1005,14 @@ else
 	done
 
 	# Create STA interface for primary band connection to controller
+	# Use different names to avoid conflicts with mesh AP interfaces
 	case "$band" in
-	  2g5g6g|2g5g) primary_band="2g"; sta_iface="meshx1" ;;
-	  5g6g) primary_band="5g"; sta_iface="meshx1" ;;
-	  6g) primary_band="6g"; sta_iface="meshx2" ;;
-	  5g) primary_band="5g"; sta_iface="meshx1" ;;
-	  2g) primary_band="2g"; sta_iface="meshx1" ;;
-	  *) primary_band="$band"; sta_iface="meshx1" ;;
+	  2g5g6g|2g5g) primary_band="2g"; sta_iface="sta2g" ;;
+	  5g6g) primary_band="5g"; sta_iface="sta5g" ;;
+	  6g) primary_band="6g"; sta_iface="sta6g" ;;
+	  5g) primary_band="5g"; sta_iface="sta5g" ;;
+	  2g) primary_band="2g"; sta_iface="sta2g" ;;
+	  *) primary_band="$band"; sta_iface="sta${band}" ;;
 	esac
 	
 	primary_radio=$(get_radio_for_band "${primary_band}")
