@@ -174,7 +174,11 @@ return view.extend({
 		o.value('eap192', _('WPA2-EAP 192-bit Mode (strong security)'));
 		o.value('eap-mixed', _('WPA2-EAP/WPA3-EAP Mixed Mode (strong security)'));
 		o.value('psk-eap-mixed', _('WPA-PSK/WPA-EAP Mixed Mode (medium security)'))		
-		if (current_role != 'controller') o.readonly = true;
+		// For agents, make readonly but show current synced value
+		if (current_role != 'controller') {
+			o.readonly = true;
+			o.description = _('Synced from controller - encryption settings are managed by the mesh controller');
+		}
 
 		o = s.option(form.Value, 'key', _('Key'));
 		o.depends('encryption', 'psk');
@@ -186,7 +190,11 @@ return view.extend({
 		o.rmempty = false;
 		o.password = true;
 		o.datatype = 'wpakey';
-		if (current_role != 'controller') o.readonly = true;
+		// For agents, make readonly but show current synced value
+		if (current_role != 'controller') {
+			o.readonly = true;
+			o.description = _('Synced from controller - encryption key is managed by the mesh controller');
+		}
 
 		o = s.option(form.ListValue, 'band', _('Band'));
 		o.value('2g5g6g', _('2G+5G+6G'));
